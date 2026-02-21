@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WaterSense — Настройки</title>
+<link rel="stylesheet" href="/s.css">
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c-5.33 4-8 7.56-8 10.5C4 17.53 7.58 22 12 22s8-4.47 8-9.5C20 9.56 17.33 6 12 2z"/></svg>
+    <span>WaterSense</span>
+  </div>
+  <div class="nav-links">
+    <a href="/">Дашборд</a>
+    <a href="/set.html" class="on">Настройки</a>
+  </div>
+</nav>
+
+<div class="wrap">
+  <form id="frm">
+
+    <!-- WiFi -->
+    <div class="sec">📶 WiFi</div>
+    <div class="row2">
+      <div class="fg"><label>Название сети (SSID)</label><input type="text" name="ws" placeholder="MyWiFi" maxlength="63"></div>
+      <div class="fg"><label>Пароль</label><input type="password" name="wp" placeholder="••••••••" maxlength="63"></div>
+    </div>
+    <p class="hint">Если WiFi не указан или недоступен — устройство запустит точку доступа <b>WaterSensor-XXXXXX</b> (пароль: watersensor)</p>
+
+    <!-- Sensor -->
+    <div class="sec">📏 Датчик HC-SR04</div>
+    <div class="row2">
+      <div class="fg">
+        <label>Пин TRIG (GPIO номер)</label>
+        <input type="number" name="tp" min="0" max="16" placeholder="14">
+        <p class="hint">D5 = GPIO14, D6 = GPIO12, D7 = GPIO13</p>
+      </div>
+      <div class="fg">
+        <label>Пин ECHO (GPIO номер)</label>
+        <input type="number" name="ep" min="0" max="16" placeholder="12">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="fg">
+        <label>Расстояние до дна пустой бочки (см)</label>
+        <input type="number" name="ed" step="0.1" min="1" max="500" placeholder="100">
+        <p class="hint">Сколько см от датчика до дна бочки</p>
+      </div>
+      <div class="fg">
+        <label>Расстояние до воды при полной бочке (см)</label>
+        <input type="number" name="fd" step="0.1" min="1" max="500" placeholder="5">
+        <p class="hint">Минимальное расстояние (бочка полная)</p>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="fg">
+        <label>Внутренний диаметр бочки (см)</label>
+        <input type="number" name="bd" step="0.1" min="0" max="500" placeholder="60">
+        <p class="hint">0 — не вычислять объём в литрах</p>
+      </div>
+      <div class="fg">
+        <label>Число замеров для усреднения (1–10)</label>
+        <input type="number" name="as" min="1" max="10" placeholder="5">
+      </div>
+    </div>
+    <div class="fg" style="max-width:260px">
+      <label>Интервал измерений (секунды)</label>
+      <input type="number" name="ms" min="10" max="3600" placeholder="60">
+    </div>
+
+    <!-- MQTT -->
+    <div class="sec">📡 MQTT</div>
+    <label class="toggle" style="margin-bottom:14px">
+      <input type="checkbox" name="me" id="tme">
+      <span class="tslider"></span>
+      <span>Включить MQTT</span>
+    </label>
+    <div id="mqttBox">
+      <div class="row2">
+        <div class="fg"><label>Сервер (хост или IP)</label><input type="text" name="mh" placeholder="192.168.1.100" maxlength="63"></div>
+        <div class="fg"><label>Порт</label><input type="number" name="mp" min="1" max="65535" placeholder="1883"></div>
+      </div>
+      <div class="row2">
+        <div class="fg"><label>Логин (необязательно)</label><input type="text" name="mu" placeholder="" maxlength="31"></div>
+        <div class="fg"><label>Пароль (необязательно)</label><input type="password" name="mq" placeholder="••••••••" maxlength="31"></div>
+      </div>
+      <div class="fg" style="max-width:360px">
+        <label>Базовый топик</label>
+        <input type="text" name="mt" placeholder="home/water" maxlength="63">
+        <p class="hint">Публикуются: <b>/level</b>, <b>/distance</b>, <b>/volume</b>, <b>/free</b>, <b>/json</b></p>
+      </div>
+    </div>
+
+    <!-- Telegram -->
+    <div class="sec">✈️ Telegram</div>
+    <label class="toggle" style="margin-bottom:14px">
+      <input type="checkbox" name="te" id="tte">
+      <span class="tslider"></span>
+      <span>Включить Telegram бот</span>
+    </label>
+    <div id="tgBox">
+      <div class="fg">
+        <label>Токен бота (от @BotFather)</label>
+        <input type="text" name="tt" placeholder="123456789:AAB..." maxlength="127">
+      </div>
+      <div class="fg" style="max-width:260px">
+        <label>Chat ID (ваш или группы)</label>
+        <input type="text" name="tc" placeholder="-100123456789" maxlength="31">
+        <p class="hint">Узнать через @userinfobot</p>
+      </div>
+      <div class="row2">
+        <div class="fg">
+          <label>Оповещение — мало воды (%)</label>
+          <input type="number" name="tl" min="1" max="99" step="1" placeholder="20">
+          <p class="hint">Алерт, если уровень ниже этого значения</p>
+        </div>
+        <div class="fg">
+          <label>Оповещение — много воды (%)</label>
+          <input type="number" name="th" min="1" max="100" step="1" placeholder="95">
+          <p class="hint">Алерт, если уровень выше этого значения</p>
+        </div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" name="td">
+        <span class="tslider"></span>
+        <span>Ежедневный отчёт в полночь</span>
+      </label>
+      <div class="card" style="margin-top:16px;background:var(--card2);border-style:dashed">
+        <div style="font-size:.85rem;color:var(--muted);line-height:1.7">
+          <b style="color:var(--txt)">Команды бота:</b><br>
+          /level — текущий уровень<br>
+          /status — полный статус с объёмом<br>
+          /help — список команд + ссылка на веб-интерфейс
+        </div>
+      </div>
+    </div>
+
+    <!-- System -->
+    <div class="sec">⚙️ Система</div>
+    <div class="row2">
+      <div class="fg">
+        <label>Имя устройства (mDNS / OTA)</label>
+        <input type="text" name="dn" placeholder="watersensor" maxlength="31">
+        <p class="hint">Доступ: <b>http://watersensor.local</b></p>
+      </div>
+      <div class="fg">
+        <label>Пароль OTA-обновления</label>
+        <input type="password" name="op" placeholder="••••••••" maxlength="31">
+        <p class="hint">Для ArduinoOTA и веб-обновления (/update)</p>
+      </div>
+    </div>
+
+    <!-- Save -->
+    <div style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap">
+      <button type="submit" class="btn btn-p" style="width:auto;padding:11px 32px">💾 Сохранить и перезагрузить</button>
+      <a href="/"><button type="button" class="btn btn-s" style="width:auto;padding:11px 24px">Отмена</button></a>
+    </div>
+
+  </form>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+function showToast(m,t){
+  var el=document.getElementById('toast');
+  el.textContent=m; el.className='toast show '+(t||'');
+  setTimeout(function(){el.className='toast';},3500);
+}
+
+// Toggle visibility
+function vis(boxId,chk){document.getElementById(boxId).style.display=chk.checked?'block':'none';}
+document.getElementById('tme').addEventListener('change',function(){vis('mqttBox',this);});
+document.getElementById('tte').addEventListener('change',function(){vis('tgBox',this);});
+
+// Load config
+fetch('/api/config').then(function(r){return r.json();}).then(function(c){
+  var f=document.getElementById('frm');
+  Object.keys(c).forEach(function(k){
+    var el=f.elements[k];
+    if(!el) return;
+    if(el.type==='checkbox') el.checked=!!c[k];
+    else el.value=c[k]!==undefined&&c[k]!==null?c[k]:'';
+  });
+  vis('mqttBox',f.elements['me']);
+  vis('tgBox',f.elements['te']);
+}).catch(function(){showToast('Ошибка загрузки настроек','err');});
+
+// Save config
+document.getElementById('frm').addEventListener('submit',function(e){
+  e.preventDefault();
+  var f=this, data={};
+  Array.from(f.elements).forEach(function(el){
+    if(!el.name) return;
+    if(el.type==='checkbox') data[el.name]=el.checked;
+    else if(el.type==='number') data[el.name]=el.value===''?null:parseFloat(el.value);
+    else data[el.name]=el.value;
+  });
+  fetch('/api/config',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(data)
+  }).then(function(r){return r.json();}).then(function(res){
+    if(res.ok){
+      showToast('Настройки сохранены. Перезагрузка...','ok');
+      setTimeout(function(){location.href='/';},4000);
+    } else {
+      showToast('Ошибка сохранения','err');
+    }
+  }).catch(function(){showToast('Нет связи с устройством','err');});
+});
+</script>
+</body>
+</html>

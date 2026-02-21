@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WaterSense — Дашборд</title>
+<link rel="stylesheet" href="/s.css">
+<style>
+.gauge{display:flex;flex-direction:column;align-items:center;padding:8px 0}
+.gring{width:140px;height:140px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;--p:0}
+.gring::before{content:'';position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--card2) 0)}
+.gring::after{content:'';position:absolute;width:100px;height:100px;border-radius:50%;background:var(--card)}
+.gtext{position:relative;z-index:1;text-align:center;line-height:1.2}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c-5.33 4-8 7.56-8 10.5C4 17.53 7.58 22 12 22s8-4.47 8-9.5C20 9.56 17.33 6 12 2z"/></svg>
+    <span>WaterSense</span>
+  </div>
+  <div class="nav-links">
+    <a href="/" class="on">Дашборд</a>
+    <a href="/set.html">Настройки</a>
+  </div>
+</nav>
+
+<div class="wrap">
+  <!-- Status bar -->
+  <div class="sbar">
+    <span><span class="sdot r" id="dw"></span><span id="lw" style="font-size:.85rem">WiFi</span></span>
+    <span><span class="sdot r" id="dm"></span><span id="lm" style="font-size:.85rem">MQTT</span></span>
+    <span><span class="sdot r" id="dt"></span><span id="lt" style="font-size:.85rem">Telegram</span></span>
+    <span class="ts" id="upd"></span>
+  </div>
+
+  <!-- Top stat cards -->
+  <div class="grid g4" style="margin-bottom:18px">
+    <div class="card">
+      <div class="clabel">Уровень воды</div>
+      <div><span class="cval" id="vl">--</span><span class="cunit">%</span></div>
+      <div class="lbar"><div class="lfill" id="lb" style="width:0%"></div></div>
+      <div class="ts" id="lhint">--</div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div class="gauge">
+        <div class="gring" id="gring">
+          <div class="gtext">
+            <div class="cval" id="vg" style="font-size:1.8rem">--</div>
+            <div class="ts">%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="clabel">Объём в бочке</div>
+      <div><span class="cval" id="vv">--</span><span class="cunit">л</span></div>
+      <div class="ts" style="margin-top:8px">из <span id="vtotal">--</span> л</div>
+    </div>
+    <div class="card">
+      <div class="clabel">Расстояние</div>
+      <div><span class="cval" id="vd">--</span><span class="cunit">см</span></div>
+      <div class="ts" style="margin-top:8px">Свободно: <span id="vfree">--</span> л</div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card" style="margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+      <div class="clabel" style="margin:0">История уровня</div>
+      <div class="ctrls">
+        <button class="cbtn on" onclick="loadH(24,this)">24ч</button>
+        <button class="cbtn" onclick="loadH(72,this)">3 дня</button>
+        <button class="cbtn" onclick="loadH(168,this)">7 дней</button>
+      </div>
+    </div>
+    <div class="chartbox"><canvas id="ch"></canvas></div>
+    <div class="no-data" id="nd" style="display:none">Записи появятся через час после запуска.</div>
+  </div>
+
+  <!-- Details & Actions -->
+  <div class="grid g2">
+    <div class="card">
+      <div class="clabel">Подробности</div>
+      <div class="drow"><span class="dlbl">IP адрес</span><span class="dval" id="dip">--</span></div>
+      <div class="drow"><span class="dlbl">WiFi сигнал</span><span class="dval" id="drssi">--</span></div>
+      <div class="drow"><span class="dlbl">Свободно ОЗУ</span><span class="dval" id="dheap">--</span></div>
+      <div class="drow"><span class="dlbl">Диаметр бочки</span><span class="dval" id="ddiam">--</span></div>
+      <div class="drow"><span class="dlbl">Записей истории</span><span class="dval" id="drec">--</span></div>
+      <div class="drow"><span class="dlbl">Версия прошивки</span><span class="dval" id="dver">--</span></div>
+    </div>
+    <div class="card">
+      <div class="clabel">Действия</div>
+      <button class="btn btn-p" onclick="measure()">⚡ Замер сейчас</button>
+      <a href="/api/export"><button class="btn btn-s">📥 Экспорт CSV</button></a>
+      <a href="/update"><button class="btn btn-s">🔄 Обновить прошивку</button></a>
+      <button class="btn btn-s" onclick="if(confirm('Очистить историю?'))fetch('/api/history',{method:'DELETE'}).then(()=>{showToast('История очищена','ok');loadH(24)})">🗑 Очистить историю</button>
+      <button class="btn btn-d" style="margin-top:14px" onclick="if(confirm('Сбросить все настройки?'))fetch('/api/reset',{method:'POST'})">Сброс настроек</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/c.js"></script>
+<script>
+var chart=null,curH=24;
+
+function showToast(m,t){
+  var el=document.getElementById('toast');
+  el.textContent=m; el.className='toast show '+(t||'');
+  setTimeout(function(){el.className='toast';},3000);
+}
+
+function dot(id,on){document.getElementById(id).className='sdot '+(on?'g':'r');}
+
+function barColor(pct){
+  if(pct<20)return'var(--err)';
+  if(pct<40)return'var(--warn)';
+  return'linear-gradient(90deg,var(--accent2),var(--accent))';
+}
+
+function applyStatus(d){
+  var pct=parseFloat(d.level)||0;
+  document.getElementById('vl').textContent=pct.toFixed(1);
+  document.getElementById('vg').textContent=pct.toFixed(1);
+  document.getElementById('lb').style.cssText='width:'+pct+'%;background:'+barColor(pct);
+  document.getElementById('gring').style.setProperty('--p',pct);
+  // level hint
+  var hint=pct<20?'⚠️ Мало воды!':pct>90?'🔵 Почти полная':'';
+  document.getElementById('lhint').textContent=hint||(' ');
+
+  document.getElementById('vv').textContent=parseFloat(d.volume).toFixed(1);
+  document.getElementById('vtotal').textContent=parseFloat(d.total).toFixed(1);
+  document.getElementById('vfree').textContent=parseFloat(d.free).toFixed(1);
+  document.getElementById('vd').textContent=parseFloat(d.distance).toFixed(1);
+
+  dot('dw',d.wifi); dot('dm',d.mqtt); dot('dt',d.tg);
+  document.getElementById('lw').textContent=d.wifi?'WiFi ✓':'WiFi ✗';
+  document.getElementById('lm').textContent=d.mqtt?'MQTT ✓':'MQTT ✗';
+  document.getElementById('lt').textContent=d.tg?'Telegram ✓':'Telegram ✗';
+
+  var t=new Date(d.ts*1000);
+  document.getElementById('upd').textContent='Обновлено: '+t.toLocaleTimeString('ru');
+
+  document.getElementById('dip').textContent=d.ip;
+  document.getElementById('drssi').textContent=d.rssi+' dBm';
+  document.getElementById('dheap').textContent=(d.heap/1024).toFixed(0)+' KB';
+  document.getElementById('ddiam').textContent=d.diameter>0?d.diameter+' см':'Не задан';
+  document.getElementById('drec').textContent=d.records+' / 168';
+  document.getElementById('dver').textContent=d.version||'—';
+}
+
+function fetchStatus(){
+  fetch('/api/status').then(function(r){return r.json();}).then(applyStatus)
+    .catch(function(){dot('dw',false);});
+}
+
+function loadH(h,btn){
+  curH=h;
+  document.querySelectorAll('.cbtn').forEach(function(b){b.classList.remove('on');});
+  if(btn)btn.classList.add('on');
+  fetch('/api/history?h='+h).then(function(r){return r.json();}).then(function(data){
+    var cv=document.getElementById('ch');
+    var nd=document.getElementById('nd');
+    if(!data.labels||!data.labels.length){nd.style.display='block';cv.style.display='none';return;}
+    nd.style.display='none'; cv.style.display='block';
+    if(!chart)chart=new TinyChart(cv);
+    chart.setData(data.labels,data.values);
+  });
+}
+
+function measure(){
+  fetch('/api/measure',{method:'POST'}).then(function(r){return r.json();})
+    .then(function(d){applyStatus(d);showToast('Замер выполнен ✓','ok');})
+    .catch(function(){showToast('Ошибка замера','err');});
+}
+
+fetchStatus();
+loadH(24);
+setInterval(fetchStatus,5000);
+setInterval(function(){loadH(curH);},60000);
+</script>
+</body>
+</html>
