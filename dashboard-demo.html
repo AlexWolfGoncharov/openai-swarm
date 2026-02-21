@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WaterSense — Дашборд (Demo)</title>
+<style>
+/* ── Variables & Reset ── */
+:root{--bg:#0f1624;--card:#1a2332;--card2:#1f2d3d;--accent:#00b4d8;--accent2:#0077b6;--ok:#4caf50;--warn:#ff9800;--err:#f44336;--txt:#e0e6ed;--muted:#8899aa;--border:#2a3a4a;--r:12px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh}
+a{color:inherit;text-decoration:none}
+
+/* ── Nav ── */
+.nav{background:var(--card);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:60px;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
+.brand{font-weight:700;font-size:1.1rem;color:var(--accent);display:flex;align-items:center;gap:8px}
+.brand svg{flex-shrink:0}
+.nav-links{display:flex;gap:4px}
+.nav-links a{color:var(--muted);padding:7px 14px;border-radius:8px;font-size:.9rem;transition:.2s}
+.nav-links a:hover,.nav-links a.on{color:var(--txt);background:var(--card2)}
+.demo-badge{font-size:.72rem;background:var(--warn);color:#000;padding:3px 8px;border-radius:6px;font-weight:600;letter-spacing:.5px}
+
+/* ── Layout ── */
+.wrap{max-width:1100px;margin:0 auto;padding:24px 20px}
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px}
+
+/* ── Stat cards ── */
+.clabel{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:10px}
+.cval{font-size:2.8rem;font-weight:700;line-height:1;color:var(--accent)}
+.cunit{font-size:1.1rem;color:var(--muted);margin-left:3px}
+.cval.warn{color:var(--warn)} .cval.err{color:var(--err)} .cval.ok{color:var(--ok)}
+
+/* ── Level bar ── */
+.lbar{height:10px;background:var(--card2);border-radius:5px;overflow:hidden;margin:14px 0 6px}
+.lfill{height:100%;border-radius:5px;transition:width .6s ease}
+
+/* ── Gauge ── */
+.gauge{display:flex;flex-direction:column;align-items:center;padding:8px 0}
+.gring{width:140px;height:140px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;--p:0}
+.gring::before{content:'';position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--card2) 0)}
+.gring::after{content:'';position:absolute;width:100px;height:100px;border-radius:50%;background:var(--card)}
+.gtext{position:relative;z-index:1;text-align:center;line-height:1.2}
+
+/* ── Status row ── */
+.sbar{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
+.sdot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;flex-shrink:0}
+.g{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.y{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+.r{background:var(--err);box-shadow:0 0 6px var(--err)}
+.ts{font-size:.8rem;color:var(--muted)}
+
+/* ── Chart ── */
+.chartbox{width:100%}
+canvas{display:block;width:100%!important}
+.ctrls{display:flex;gap:6px;margin-bottom:14px}
+.cbtn{padding:4px 12px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;font-size:.8rem;transition:.2s}
+.cbtn.on{background:var(--accent);border-color:var(--accent);color:#000;font-weight:600}
+.no-data{text-align:center;color:var(--muted);padding:50px 20px;font-size:.9rem}
+
+/* ── Details rows ── */
+.drow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:.9rem}
+.drow:last-child{border:none}
+.dlbl{color:var(--muted)}
+.dval{font-weight:600}
+
+/* ── Buttons ── */
+.btn{display:inline-block;width:100%;padding:10px 20px;border:none;border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:500;text-align:center;transition:.2s}
+.btn+.btn{margin-top:10px}
+.btn-p{background:var(--accent);color:#000}
+.btn-p:hover{background:var(--accent2);color:#fff}
+.btn-s{background:var(--card2);border:1px solid var(--border);color:var(--txt)}
+.btn-s:hover{border-color:var(--accent)}
+.btn-d{background:transparent;border:1px solid var(--err);color:var(--err)}
+.btn-d:hover{background:var(--err);color:#fff}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:13px 20px;font-size:.9rem;z-index:999;transform:translateY(80px);opacity:0;transition:.3s;pointer-events:none}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.ok{border-color:var(--ok)} .toast.err{border-color:var(--err)}
+
+/* ── Responsive ── */
+@media(max-width:600px){
+  .wrap{padding:14px}
+  .card{padding:16px}
+  .cval{font-size:2.2rem}
+  .brand span{display:none}
+  .nav-links a{padding:7px 10px;font-size:.82rem}
+}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c-5.33 4-8 7.56-8 10.5C4 17.53 7.58 22 12 22s8-4.47 8-9.5C20 9.56 17.33 6 12 2z"/></svg>
+    <span>WaterSense</span>
+  </div>
+  <div class="nav-links">
+    <a href="#" class="on">Дашборд</a>
+    <a href="#">Настройки</a>
+    <span class="demo-badge">DEMO</span>
+  </div>
+</nav>
+
+<div class="wrap">
+  <!-- Status bar -->
+  <div class="sbar">
+    <span><span class="sdot g"></span><span style="font-size:.85rem">WiFi ✓</span></span>
+    <span><span class="sdot g"></span><span style="font-size:.85rem">MQTT ✓</span></span>
+    <span><span class="sdot r"></span><span style="font-size:.85rem">Telegram ✗</span></span>
+    <span class="ts" id="upd"></span>
+  </div>
+
+  <!-- Top stat cards -->
+  <div class="grid g4" style="margin-bottom:18px">
+    <div class="card">
+      <div class="clabel">Уровень воды</div>
+      <div><span class="cval" id="vl">67.3</span><span class="cunit">%</span></div>
+      <div class="lbar"><div class="lfill" id="lb" style="width:67.3%;background:linear-gradient(90deg,var(--accent2),var(--accent))"></div></div>
+      <div class="ts">&nbsp;</div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div class="gauge">
+        <div class="gring" style="--p:67.3">
+          <div class="gtext">
+            <div class="cval" style="font-size:1.8rem">67.3</div>
+            <div class="ts">%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="clabel">Объём в бочке</div>
+      <div><span class="cval">134.6</span><span class="cunit">л</span></div>
+      <div class="ts" style="margin-top:8px">из <span>200.0</span> л</div>
+    </div>
+    <div class="card">
+      <div class="clabel">Расстояние</div>
+      <div><span class="cval">32.7</span><span class="cunit">см</span></div>
+      <div class="ts" style="margin-top:8px">Свободно: <span>65.4</span> л</div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card" style="margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+      <div class="clabel" style="margin:0">История уровня</div>
+      <div class="ctrls">
+        <button class="cbtn on" onclick="showH(24,this)">24ч</button>
+        <button class="cbtn" onclick="showH(72,this)">3 дня</button>
+        <button class="cbtn" onclick="showH(168,this)">7 дней</button>
+      </div>
+    </div>
+    <div class="chartbox"><canvas id="ch"></canvas></div>
+  </div>
+
+  <!-- Details & Actions -->
+  <div class="grid g2">
+    <div class="card">
+      <div class="clabel">Подробности</div>
+      <div class="drow"><span class="dlbl">IP адрес</span><span class="dval">192.168.1.45</span></div>
+      <div class="drow"><span class="dlbl">WiFi сигнал</span><span class="dval">-58 dBm</span></div>
+      <div class="drow"><span class="dlbl">Свободно ОЗУ</span><span class="dval">32 KB</span></div>
+      <div class="drow"><span class="dlbl">Диаметр бочки</span><span class="dval">60 см</span></div>
+      <div class="drow"><span class="dlbl">Записей истории</span><span class="dval">72 / 168</span></div>
+      <div class="drow"><span class="dlbl">Версия прошивки</span><span class="dval">1.0.0</span></div>
+    </div>
+    <div class="card">
+      <div class="clabel">Действия</div>
+      <button class="btn btn-p" onclick="showToast('Замер выполнен ✓','ok')">⚡ Замер сейчас</button>
+      <button class="btn btn-s" onclick="showToast('В демо-режиме экспорт недоступен','err')">📥 Экспорт CSV</button>
+      <button class="btn btn-s" onclick="showToast('В демо-режиме обновление недоступно','err')">🔄 Обновить прошивку</button>
+      <button class="btn btn-s" onclick="showToast('История очищена','ok')">🗑 Очистить историю</button>
+      <button class="btn btn-d" style="margin-top:14px" onclick="showToast('В демо-режиме сброс недоступен','err')">Сброс настроек</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── TinyChart (встроено) ── */
+(function(w){'use strict';
+function TC(el,opts){
+  this.c=typeof el==='string'?document.getElementById(el):el;
+  this.o=Object.assign({bg:'transparent',grid:'#2a3a4a',line:'#00b4d8',fill:'rgba(0,180,216,0.12)',text:'#8899aa',pad:{t:20,r:20,b:42,l:52}},opts||{});
+  this.d={l:[],v:[]};
+  var me=this;
+  this.c.addEventListener('mousemove',function(e){me._mv(e);});
+  this.c.addEventListener('touchmove',function(e){me._tv(e);},{passive:true});
+  this.c.addEventListener('mouseleave',function(){me._draw();});
+}
+TC.prototype={
+  setData:function(labels,values){this.d={l:labels,v:values.map(Number)};this._resize();this._draw();},
+  _resize:function(){var dpr=window.devicePixelRatio||1;var w=this.c.parentElement.clientWidth||300;this.c.width=w*dpr;this.c.height=260*dpr;this.c.style.width=w+'px';this.c.style.height='260px';this.c.getContext('2d').scale(dpr,dpr);this._w=w;this._h=260;},
+  _draw:function(hx){var c=this.c,ctx=c.getContext('2d'),o=this.o,d=this.d,p=o.pad;var w=this._w||c.width,h=this._h||c.height;ctx.clearRect(0,0,w,h);if(!d.v.length)return;var gw=w-p.l-p.r,gh=h-p.t-p.b;var vals=d.v,n=vals.length;var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);var rng=mx-mn||1;var xS=n>1?gw/(n-1):gw;var X=function(i){return p.l+i*xS;};var Y=function(v){return p.t+gh-(v-mn)/rng*gh;};ctx.strokeStyle=o.grid;ctx.lineWidth=1;ctx.fillStyle=o.text;ctx.font='11px sans-serif';ctx.textAlign='right';for(var gi=0;gi<=4;gi++){var gy=p.t+gh/4*gi;ctx.beginPath();ctx.moveTo(p.l,gy);ctx.lineTo(p.l+gw,gy);ctx.stroke();var gv=mx-rng/4*gi;ctx.fillText(gv.toFixed(1)+'%',p.l-6,gy+4);}ctx.beginPath();ctx.moveTo(X(0),Y(vals[0]));for(var i=1;i<n;i++)ctx.lineTo(X(i),Y(vals[i]));ctx.lineTo(X(n-1),h-p.b);ctx.lineTo(X(0),h-p.b);ctx.closePath();ctx.fillStyle=o.fill;ctx.fill();ctx.beginPath();ctx.strokeStyle=o.line;ctx.lineWidth=2;ctx.lineJoin='round';ctx.moveTo(X(0),Y(vals[0]));for(var j=1;j<n;j++)ctx.lineTo(X(j),Y(vals[j]));ctx.stroke();ctx.fillStyle=o.text;ctx.textAlign='center';var step=Math.max(1,Math.floor(n/7));for(var k=0;k<n;k++){if(k%step===0||k===n-1)ctx.fillText(d.l[k],X(k),h-p.b+16);}if(hx!==undefined){var idx=Math.round((hx-p.l)/xS);if(idx<0)idx=0;if(idx>=n)idx=n-1;var cx=X(idx),cy=Y(vals[idx]);ctx.setLineDash([4,4]);ctx.strokeStyle=o.text;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(cx,p.t);ctx.lineTo(cx,h-p.b);ctx.stroke();ctx.setLineDash([]);ctx.beginPath();ctx.arc(cx,cy,5,0,Math.PI*2);ctx.fillStyle=o.line;ctx.fill();var txt=d.l[idx]+': '+vals[idx].toFixed(1)+'%';ctx.font='12px sans-serif';var tw=ctx.measureText(txt).width+16;var tx=cx-tw/2;if(tx<p.l)tx=p.l;if(tx+tw>w-p.r)tx=w-p.r-tw;var ty=cy-36;if(ty<p.t)ty=cy+10;ctx.fillStyle='#1a2332';ctx.beginPath();ctx.rect(tx,ty,tw,24);ctx.fill();ctx.fillStyle='#e0e6ed';ctx.textAlign='left';ctx.fillText(txt,tx+8,ty+16);}},
+  _px:function(e){var r=this.c.getBoundingClientRect();return e.clientX-r.left;},
+  _mv:function(e){this._draw(this._px(e));},
+  _tv:function(e){if(e.touches.length)this._draw(this._px(e.touches[0]));},
+};
+w.TinyChart=TC;
+})(window);
+
+/* ── Fake data ── */
+var fakeData = {
+  h24: (function(){
+    var now = new Date();
+    var labels = [], values = [];
+    // Realistic water level changes over 24 hours: starts ~72%, morning usage dip, refill overnight
+    var base = [72,71,70,69,68,68,67,66,65,64,63,62,61,62,63,64,65,66,67.3,68,68,67.5,67.3,67.3];
+    for(var i = 23; i >= 0; i--){
+      var t = new Date(now - i * 3600000);
+      labels.push(t.getHours().toString().padStart(2,'0') + ':00');
+      values.push(+(base[23-i] + (Math.random()-0.5)*0.8).toFixed(1));
+    }
+    return {labels: labels, values: values};
+  })(),
+  h72: (function(){
+    var now = new Date();
+    var labels = [], values = [];
+    var trendBase = 80;
+    for(var i = 71; i >= 0; i--){
+      var t = new Date(now - i * 3600000);
+      // Gradual downtrend with some variation
+      var v = trendBase - (71-i) * 0.18 + Math.sin((71-i)/6)*2 + (Math.random()-0.5)*1.2;
+      v = Math.max(55, Math.min(85, v));
+      if(i % 6 === 0) labels.push(t.toLocaleDateString('ru',{day:'numeric',month:'short'})+' '+t.getHours().toString().padStart(2,'0')+':00');
+      else labels.push('');
+      values.push(+v.toFixed(1));
+    }
+    return {labels: labels, values: values};
+  })(),
+  h168: (function(){
+    var now = new Date();
+    var labels = [], values = [];
+    var trendBase = 95;
+    for(var i = 167; i >= 0; i--){
+      var t = new Date(now - i * 3600000);
+      var v = trendBase - (167-i) * 0.165 + Math.sin((167-i)/12)*3 + (Math.random()-0.5)*1.5;
+      v = Math.max(60, Math.min(98, v));
+      if(i % 24 === 0) labels.push(t.toLocaleDateString('ru',{day:'numeric',month:'short'}));
+      else labels.push('');
+      values.push(+v.toFixed(1));
+    }
+    return {labels: labels, values: values};
+  })()
+};
+
+/* ── Chart & UI ── */
+var chart = new TinyChart(document.getElementById('ch'));
+var curKey = 'h24';
+
+function showH(h, btn){
+  document.querySelectorAll('.cbtn').forEach(function(b){b.classList.remove('on');});
+  if(btn) btn.classList.add('on');
+  curKey = 'h' + h;
+  var d = fakeData[curKey];
+  chart.setData(d.labels, d.values);
+}
+
+function showToast(m, t){
+  var el = document.getElementById('toast');
+  el.textContent = m;
+  el.className = 'toast show ' + (t||'');
+  setTimeout(function(){el.className='toast';}, 3000);
+}
+
+// Init
+document.getElementById('upd').textContent = 'Обновлено: ' + new Date().toLocaleTimeString('ru');
+showH(24);
+</script>
+</body>
+</html>
