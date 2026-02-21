@@ -106,6 +106,100 @@ pio device monitor
 | `home/water/volume` | Объём воды, л |
 | `home/water/free` | Свободный объём, л |
 | `home/water/json` | JSON со всеми данными |
+| `watersensor/<chip_id>/status` | `online` / `offline` (LWT) |
+
+---
+
+## Интеграция с Home Assistant
+
+### Способ 1 — MQTT Auto-Discovery (рекомендуется, нет YAML)
+
+Включить MQTT в настройках устройства → при подключении к брокеру устройство
+автоматически опубликует конфигурацию в топики `homeassistant/sensor/...`.
+
+Home Assistant обнаружит **4 сущности** автоматически:
+
+| Сущность | Иконка | Unit |
+|---|---|---|
+| `sensor.watersense_уровень` | 🌊 | % |
+| `sensor.watersense_объём` | 🪣 | L |
+| `sensor.watersense_свободно` | ⬜ | L |
+| `sensor.watersense_расстояние` | 📏 | cm |
+
+Устройство корректно отображается как **недоступное** когда ESP8266 выключен
+(LWT `offline` через 15 сек).
+
+> **Требования:** Home Assistant с установленной интеграцией MQTT + тот же MQTT-брокер.
+
+---
+
+### Способ 2 — REST API (резервный, без MQTT)
+
+Добавить в `configuration.yaml` — заменить IP или использовать `watersensor.local`:
+
+```yaml
+rest:
+  - resource: http://192.168.1.X/api/status
+    scan_interval: 30
+    sensor:
+      - name: "Уровень воды"
+        value_template: "{{ value_json.level }}"
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:waves
+
+      - name: "Объём воды"
+        value_template: "{{ value_json.volume }}"
+        unit_of_measurement: "L"
+        device_class: volume
+        state_class: measurement
+        icon: mdi:barrel
+
+      - name: "Свободно в бочке"
+        value_template: "{{ value_json.free }}"
+        unit_of_measurement: "L"
+        device_class: volume
+        state_class: measurement
+        icon: mdi:barrel-outline
+
+      - name: "Расстояние датчика"
+        value_template: "{{ value_json.distance }}"
+        unit_of_measurement: "cm"
+        device_class: distance
+        state_class: measurement
+```
+
+> Работает без MQTT — HA сам опрашивает устройство каждые 30 секунд.
+
+---
+
+### Автоматизации в HA (примеры)
+
+```yaml
+# Уведомление при низком уровне воды
+automation:
+  - alias: "Мало воды в бочке"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.watersense_уровень
+        below: 20
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "💧 Мало воды!"
+          message: "Уровень воды: {{ states('sensor.watersense_уровень') }}%"
+
+  # Включить насос при низком уровне
+  - alias: "Включить насос"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.watersense_уровень
+        below: 15
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.water_pump
+```
 
 ---
 

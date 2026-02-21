@@ -175,9 +175,10 @@ void loop() {
       tHourly = now;
     }
 
-    // MQTT keep-alive
+    // MQTT keep-alive + auto-discovery
     if (now - tMqtt >= 1000UL) {
       mqttLoop(cfg);
+      if (mqttConnected()) mqttDiscovery(cfg);  // no-op after first send
       tMqtt = now;
     }
 
