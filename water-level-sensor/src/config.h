@@ -188,7 +188,7 @@ inline bool loadConfig(Config &c) {
     return false;
   }
 
-  StaticJsonDocument<1536> doc;
+  DynamicJsonDocument doc(3072);
   if (deserializeJson(doc, f)) {
     f.close();
     dbgPrintln(F("[CFG] Bad config.json, using defaults"));
@@ -235,7 +235,7 @@ inline bool loadConfig(Config &c) {
 // ---------- save ----------
 inline bool saveConfig(Config &c) {
   sanitizeConfig(c);
-  StaticJsonDocument<1536> doc;
+  DynamicJsonDocument doc(3072);
   doc["ws"] = c.wifi_ssid;
   doc["wp"] = c.wifi_password;
   doc["tp"] = c.trig_pin;
@@ -266,13 +266,53 @@ inline bool saveConfig(Config &c) {
   doc["dn"] = c.device_name;
   doc["op"] = c.ota_pass;
 
-  File f = LittleFS.open(CONFIG_FILE, "w");
-  if (!f) {
-    dbgPrintln(F("[CFG] Failed to open /config.json for write"));
+  if (doc.overflowed()) {
+    dbgPrintln(F("[CFG] JSON overflow while building config.json"));
     return false;
   }
-  serializeJson(doc, f);
+
+  const char *TMP_CONFIG_FILE = "/config.json.tmp";
+  LittleFS.remove(TMP_CONFIG_FILE);
+  File f = LittleFS.open(TMP_CONFIG_FILE, "w");
+  if (!f) {
+    dbgPrintln(F("[CFG] Failed to open temp config for write"));
+    return false;
+  }
+  size_t wr = serializeJson(doc, f);
+  f.flush();
   f.close();
+
+  if (wr == 0) {
+    dbgPrintln(F("[CFG] Failed to write temp config"));
+    LittleFS.remove(TMP_CONFIG_FILE);
+    return false;
+  }
+
+  // Validate written JSON before replacing the live config.
+  {
+    File vf = LittleFS.open(TMP_CONFIG_FILE, "r");
+    if (!vf) {
+      dbgPrintln(F("[CFG] Failed to re-open temp config"));
+      LittleFS.remove(TMP_CONFIG_FILE);
+      return false;
+    }
+    DynamicJsonDocument vdoc(3072);
+    auto err = deserializeJson(vdoc, vf);
+    vf.close();
+    if (err) {
+      dbgPrintf("[CFG] Temp config validation failed: %s\n", err.c_str());
+      LittleFS.remove(TMP_CONFIG_FILE);
+      return false;
+    }
+  }
+
+  LittleFS.remove(CONFIG_FILE);
+  if (!LittleFS.rename(TMP_CONFIG_FILE, CONFIG_FILE)) {
+    dbgPrintln(F("[CFG] Failed to replace config.json"));
+    LittleFS.remove(TMP_CONFIG_FILE);
+    return false;
+  }
+
   logConfigSummary("saved", c);
   return true;
 }

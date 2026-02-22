@@ -94,7 +94,7 @@ inline void mqttDiscovery(const Config &c) {
     if (strlen(dev_class)) doc[F("dev_cla")] = dev_class;
 
     char payload[480];
-    size_t len = serializeJson(doc, payload, sizeof(payload));
+    serializeJson(doc, payload, sizeof(payload));
     _mqttClient.publish(discTopic, payload, true);
   };
 

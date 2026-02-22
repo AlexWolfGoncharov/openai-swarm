@@ -28,9 +28,12 @@ ESP8266HTTPUpdateServer updater;
 
 bool apMode = false;
 bool bootPhase = true;
+volatile bool measureQueued = false;
+unsigned long tMeasureQueuedDue = 0;
 
 // Timers
 unsigned long tMeasure    = 0;
+unsigned long tRecentHist = 0;
 unsigned long tHourly     = 0;
 unsigned long tTelegram   = 0;
 unsigned long tMqtt       = 0;
@@ -39,8 +42,13 @@ unsigned long tMdns       = 0;
 // Daily summary
 int lastSummaryDay = -1;
 String serialLine;
+bool tgBootMsgPending = false;
+unsigned long tWifiRetry = 0;
+unsigned long tBootMsgDue = 0;
 
 void doMeasureCallback();
+void doMeasureNoAlertsCallback();
+void queueMeasureNoAlertsCallback();
 
 // ── Serial console helpers ───────────────────────────────────────────────────
 static String _trimQuotes(String s) {
@@ -249,14 +257,17 @@ void startAP() {
 
 // ── NTP ──────────────────────────────────────────────────────────────────────
 void setupNTP() {
-  // Kyiv timezone (EET/EEST with DST)
-  setenv("TZ", "EET-2EEST,M3.5.0/3,M10.5.0/4", 1);
-  tzset();
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  // Kyiv timezone (EET/EEST with DST). On ESP8266 it's more reliable to pass
+  // the TZ string directly into configTime() than relying only on setenv/tzset.
+  const char *tzKyiv = "EET-2EEST,M3.5.0/3,M10.5.0/4";
+  configTime(tzKyiv, "pool.ntp.org", "time.nist.gov");
   // Wait for sync (max 5s)
   time_t t = 0;
   for (int i = 0; i < 10 && t < 1000000; i++) { delay(500); t = time(nullptr); }
-  dbgPrintf("[NTP] Time: %lu (Kyiv TZ)\n", (unsigned long)t);
+  struct tm *lt = localtime(&t);
+  char buf[24] = {0};
+  if (lt) strftime(buf, sizeof(buf), "%H:%M:%S", lt);
+  dbgPrintf("[NTP] Time: %lu (Kyiv TZ, local=%s)\n", (unsigned long)t, lt ? buf : "--");
 }
 
 // ── OTA ──────────────────────────────────────────────────────────────────────
@@ -275,11 +286,25 @@ void setupArduinoOTA() {
 }
 
 // ── Measure callback ──────────────────────────────────────────────────────────
-void doMeasureCallback() {
+static void _doMeasureCommon(bool allowAlerts) {
   doMeasure(cfg, sens);
+  computeTrendStats(sens); // warm cache outside frequent /api/status requests
   dbgPrintf("[Sensor] dist=%.1f cm  level=%.1f%%  vol=%.1f L  temp=%.1f°C\n",
                 sens.distance_cm, sens.level_pct, sens.volume_liters, sens.temp_c);
-  if (!bootPhase) tgCheckAlerts(cfg, sens);
+  if (allowAlerts && !bootPhase) tgCheckAlerts(cfg, sens);
+}
+
+void doMeasureCallback() {
+  _doMeasureCommon(true);
+}
+
+void doMeasureNoAlertsCallback() {
+  _doMeasureCommon(false);
+}
+
+void queueMeasureNoAlertsCallback() {
+  measureQueued = true;
+  tMeasureQueuedDue = millis() + 5000UL; // let HTTP response/TCP flush before heavy work
 }
 
 // ── setup ────────────────────────────────────────────────────────────────────
@@ -314,7 +339,7 @@ void setup() {
     setupNTP();
     setupArduinoOTA();
     mqttSetup(cfg);
-    tgSetMeasureCallback(doMeasureCallback);
+    tgSetMeasureCallback(doMeasureNoAlertsCallback);
     tgSetup(cfg);
   }
 
@@ -325,7 +350,7 @@ void setup() {
   }
 
   // Web server
-  webSetup(webServer, updater, cfg, sens, doMeasureCallback);
+  webSetup(webServer, updater, cfg, sens, doMeasureNoAlertsCallback, queueMeasureNoAlertsCallback);
   webServer.begin();
   dbgPrintln(F("[HTTP] Server started"));
 
@@ -335,9 +360,12 @@ void setup() {
 
   // Store first point in history right away
   if (!apMode) {
+    storageWriteRecent(sens); // recent minute-cache (first point)
+    tRecentHist = millis();
     storageWrite(sens);
     tHourly = millis();
-    tgBootMessage(cfg, sens);
+    tgBootMsgPending = cfg.tg_en;
+    tBootMsgDue = millis() + 8000UL;
   }
   bootPhase = false;
 }
@@ -347,6 +375,14 @@ void loop() {
   serialPoll();
   webServer.handleClient();
   MDNS.update();
+
+  // Manual measure requested from HTTP handler (run here to avoid blocking request context).
+  if (measureQueued && (long)(millis() - tMeasureQueuedDue) >= 0) {
+    measureQueued = false;
+    doMeasureNoAlertsCallback();
+    // Avoid extra network burst right after /api/measure HTTP response; periodic publish will follow.
+    tMeasure = millis();
+  }
 
   if (!apMode) {
     ArduinoOTA.handle();
@@ -360,6 +396,12 @@ void loop() {
       tMeasure = now;
     }
 
+    // Recent snapshots for graph (1 point / minute, last 60 points)
+    if (now - tRecentHist >= 60000UL) {
+      storageWriteRecent(sens);
+      tRecentHist = now;
+    }
+
     // Hourly snapshot for history
     if (now - tHourly >= 3600000UL) {
       storageWrite(sens);
@@ -371,6 +413,12 @@ void loop() {
       mqttLoop(cfg);
       if (mqttConnected()) mqttDiscovery(cfg);  // no-op after first send
       tMqtt = now;
+    }
+
+    // Defer startup Telegram message until the system is fully up.
+    if (tgBootMsgPending && now >= tBootMsgDue) {
+      tgBootMessage(cfg, sens);
+      tgBootMsgPending = false;
     }
 
     // Telegram polling
@@ -391,9 +439,11 @@ void loop() {
 
     // WiFi watchdog
     if (WiFi.status() != WL_CONNECTED) {
-      dbgPrintln(F("[WiFi] Reconnecting..."));
-      WiFi.reconnect();
-      delay(5000);
+      if (now - tWifiRetry >= 5000UL) {
+        dbgPrintln(F("[WiFi] Reconnecting..."));
+        WiFi.reconnect();
+        tWifiRetry = now;
+      }
     }
   }
 

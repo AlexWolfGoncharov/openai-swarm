@@ -59,11 +59,13 @@
         <label>Расстояние до дна пустой бочки (см)</label>
         <input type="number" name="ed" step="0.1" min="1" max="500" placeholder="110">
         <p class="hint">Сколько см от датчика до дна бочки</p>
+        <button type="button" class="btn btn-s" style="width:auto;padding:8px 14px;margin-top:8px" onclick="captureDistanceTo('ed','empty')">Запомнить текущее как «Пусто»</button>
       </div>
       <div class="fg">
         <label>Расстояние до воды при полной бочке (см)</label>
         <input type="number" name="fd" step="0.1" min="1" max="500" placeholder="25">
         <p class="hint">Минимальное расстояние (бочка полная)</p>
+        <button type="button" class="btn btn-s" style="width:auto;padding:8px 14px;margin-top:8px" onclick="captureDistanceTo('fd','full')">Запомнить текущее как «Полно»</button>
       </div>
     </div>
     <div class="row2">
@@ -267,6 +269,38 @@ function scanWifi(){
       renderWifiList([]);
     })
     .finally(function(){ setWifiScanBusy(false); });
+}
+
+function captureDistanceTo(fieldName, mode){
+  var f=document.getElementById('frm');
+  var target=f.elements[fieldName];
+  if(!target){ showToast('Поле не найдено','err'); return; }
+  fetch('/api/status')
+    .then(function(r){return r.json();})
+    .then(function(s){
+      var d=parseFloat(s.distance);
+      if(isNaN(d) || d<=0){
+        showToast('Нет корректного текущего замера расстояния','err');
+        return;
+      }
+      target.value=d.toFixed(1);
+      if(mode==='empty'){
+        var fd=parseFloat(f.elements['fd'].value);
+        if(!isNaN(fd) && d<=fd){
+          showToast('Внимание: «Пусто» должно быть больше, чем «Полно»','err');
+        } else {
+          showToast('Подставлено в «Пусто»: '+d.toFixed(1)+' см','ok');
+        }
+      } else {
+        var ed=parseFloat(f.elements['ed'].value);
+        if(!isNaN(ed) && d>=ed){
+          showToast('Внимание: «Полно» должно быть меньше, чем «Пусто»','err');
+        } else {
+          showToast('Подставлено в «Полно»: '+d.toFixed(1)+' см','ok');
+        }
+      }
+    })
+    .catch(function(){ showToast('Не удалось получить текущий замер (/api/status)','err'); });
 }
 
 // Toggle visibility

@@ -78,6 +78,8 @@
         <button class="cbtn on" onclick="loadH(24,this)">24ч</button>
         <button class="cbtn" onclick="loadH(72,this)">3 дня</button>
         <button class="cbtn" onclick="loadH(168,this)">7 дней</button>
+        <button class="cbtn" onclick="loadH(720,this)">30 дней</button>
+        <button class="cbtn" onclick="loadH(2160,this)">90 дней</button>
       </div>
     </div>
     <div class="chartbox"><canvas id="ch"></canvas></div>
@@ -109,9 +111,35 @@
       <button class="btn btn-p" onclick="measure()">⚡ Замер сейчас</button>
       <button class="btn btn-s" onclick="toggleDebug()">🐞 Режим отладки</button>
       <a href="/api/export"><button class="btn btn-s">📥 Экспорт CSV</button></a>
+      <a href="/api/history.bin"><button class="btn btn-s">💾 Backup истории (hourly)</button></a>
+      <a href="/api/history_recent.bin"><button class="btn btn-s">💾 Backup истории (recent)</button></a>
+      <button class="btn btn-s" onclick="document.getElementById('histHourlyFile').click()">♻️ Восстановить hourly</button>
+      <button class="btn btn-s" onclick="document.getElementById('histRecentFile').click()">♻️ Восстановить recent</button>
+      <input type="file" id="histHourlyFile" style="display:none" onchange="restoreHistoryBin('hourly',this)">
+      <input type="file" id="histRecentFile" style="display:none" onchange="restoreHistoryBin('recent',this)">
       <a href="/update"><button class="btn btn-s">🔄 Обновить прошивку</button></a>
       <button class="btn btn-s" onclick="if(confirm('Очистить историю?'))fetch('/api/history',{method:'DELETE'}).then(()=>{showToast('История очищена','ok');loadH(24)})">🗑 Очистить историю</button>
       <button class="btn btn-d" style="margin-top:14px" onclick="if(confirm('Сбросить все настройки?'))fetch('/api/reset',{method:'POST'})">Сброс настроек</button>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:18px">
+    <div class="card">
+      <div class="clabel">Аналитика расхода</div>
+      <div class="drow"><span class="dlbl">Расход за 24ч</span><span class="dval" id="du24">--</span></div>
+      <div class="drow"><span class="dlbl">Средний расход (24ч)</span><span class="dval" id="dr24">--</span></div>
+      <div class="drow"><span class="dlbl">Расход за 7д</span><span class="dval" id="du7">--</span></div>
+      <div class="drow"><span class="dlbl">Средний расход (7д)</span><span class="dval" id="dr7">--</span></div>
+      <div class="drow"><span class="dlbl">Прогноз до пусто</span><span class="dval" id="ddays">--</span></div>
+      <div class="ts" id="deta" style="margin-top:10px">Появится после накопления истории.</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div class="clabel" style="margin:0">События (60 минут)</div>
+        <button class="cbtn" onclick="fetchEvents()">Обновить</button>
+      </div>
+      <div id="evList" style="margin-top:10px;display:grid;gap:8px"></div>
+      <div class="ts" id="evEmpty" style="margin-top:8px">Событий пока нет</div>
     </div>
   </div>
 
@@ -128,6 +156,8 @@
 <script src="/c.js"></script>
 <script>
 var chart=null,tempChart=null,curH=24,dbgOn=false,dbgTimer=null;
+var lastStatus=null,lastHist=null;
+var eventsBusy=false;
 
 function showToast(m,t){
   var el=document.getElementById('toast');
@@ -143,7 +173,150 @@ function barColor(pct){
   return'linear-gradient(90deg,var(--accent2),var(--accent))';
 }
 
+function fmtLit(v){
+  var n=parseFloat(v);
+  return isNaN(n)?'--':(n.toFixed(1)+' л');
+}
+function fmtLpd(v){
+  var n=parseFloat(v);
+  return isNaN(n)?'--':(n.toFixed(1)+' л/сут');
+}
+function kyivFull(ts){
+  ts=parseInt(ts,10);
+  if(!ts)return'—';
+  var d=new Date(ts*1000);
+  return d.toLocaleString('uk-UA',{
+    timeZone:'Europe/Kyiv',
+    day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'
+  });
+}
+function eventTypeLabel(t){
+  if(t==='fill') return 'Долив';
+  if(t==='draw') return 'Резкий расход';
+  if(t==='leak') return 'Возможная утечка';
+  return t||'Событие';
+}
+function eventColor(t){
+  if(t==='fill') return 'var(--ok)';
+  if(t==='leak') return 'var(--err)';
+  if(t==='draw') return 'var(--warn)';
+  return 'var(--muted)';
+}
+
+function kyivHM(ts){
+  ts=parseInt(ts,10);
+  if(!ts)return'';
+  return new Date(ts*1000).toLocaleTimeString('uk-UA',{
+    timeZone:'Europe/Kyiv',hour:'2-digit',minute:'2-digit'
+  });
+}
+
+function mergeLiveLevelPoint(data,st){
+  var out={
+    labels:(data.labels||[]).slice(),
+    values:(data.values||[]).slice(),
+    volumes:Array.isArray(data.volumes)?data.volumes.slice():[]
+  };
+  if(!st)return out;
+  var liveLabel=kyivHM(st.ts);
+  var liveLevel=parseFloat(st.level);
+  var liveVol=parseFloat(st.volume);
+  if(!liveLabel||isNaN(liveLevel))return out;
+
+  var i=out.labels.length-1;
+  if(i>=0 && String(out.labels[i])===liveLabel){
+    out.values[i]=liveLevel;
+    if(!isNaN(liveVol)){
+      while(out.volumes.length<i)out.volumes.push(NaN);
+      out.volumes[i]=liveVol;
+    }
+    return out;
+  }
+  out.labels.push(liveLabel);
+  out.values.push(liveLevel);
+  if(!isNaN(liveVol)){
+    while(out.volumes.length<out.values.length-1)out.volumes.push(NaN);
+    out.volumes.push(liveVol);
+  }
+  return out;
+}
+
+function mergeLiveTempPoint(labels,values,st){
+  var outL=(labels||[]).slice(), outV=(values||[]).slice();
+  if(!st)return {labels:outL,values:outV};
+  var liveLabel=kyivHM(st.ts);
+  var liveTemp=parseFloat(st.temp);
+  if(!liveLabel||isNaN(liveTemp))return {labels:outL,values:outV};
+  var i=outL.length-1;
+  if(i>=0 && String(outL[i])===liveLabel){
+    outV[i]=liveTemp;
+  }else{
+    outL.push(liveLabel);
+    outV.push(liveTemp);
+  }
+  return {labels:outL,values:outV};
+}
+
+function renderHistory(data){
+  lastHist=data||null;
+  var labels=(data&&data.labels)||[];
+  var cv=document.getElementById('ch');
+  var nd=document.getElementById('nd');
+  var tcv=document.getElementById('cht');
+  var ndt=document.getElementById('ndt');
+  if(!labels.length){
+    nd.style.display='block';cv.style.display='none';
+    ndt.style.display='block';tcv.style.display='none';
+    return;
+  }
+  nd.style.display='none'; cv.style.display='block';
+  if(!chart)chart=new TinyChart(cv,{
+    formatY:function(v,d){
+      var txt=v.toFixed(1)+'%';
+      if(!d || !d.s || !d.s.length) return txt;
+      var k=NaN;
+      for(var i=0;i<d.v.length;i++){
+        var pv=parseFloat(d.v[i]), sv=parseFloat(d.s[i]);
+        if(!isNaN(pv) && !isNaN(sv) && pv>0){ k=sv/pv; break; }
+      }
+      if(isNaN(k)) return txt;
+      return txt+'  ('+(v*k).toFixed(1)+' л)';
+    },
+    formatTooltip:function(idx,d,v){
+      var txt=(d.l[idx]||'')+': '+v.toFixed(1)+'%';
+      var sv=parseFloat((d.s||[])[idx]);
+      if(!isNaN(sv)) txt+=' / '+sv.toFixed(1)+' л';
+      return txt;
+    }
+  });
+  var liveLevelSeries=mergeLiveLevelPoint(data,lastStatus);
+  chart.setData(liveLevelSeries.labels,liveLevelSeries.values,liveLevelSeries.volumes||[]);
+
+  var tLabels=[], tValues=[];
+  (data.temps||[]).forEach(function(v,i){
+    var n=parseFloat(v);
+    if(!isNaN(n) && labels[i]!==undefined){
+      tLabels.push(labels[i]);
+      tValues.push(n);
+    }
+  });
+  var liveTempSeries=mergeLiveTempPoint(tLabels,tValues,lastStatus);
+  tLabels=liveTempSeries.labels; tValues=liveTempSeries.values;
+  if(!tValues.length){
+    ndt.style.display='block';tcv.style.display='none';
+    return;
+  }
+  ndt.style.display='none'; tcv.style.display='block';
+  if(!tempChart)tempChart=new TinyChart(tcv,{
+    line:'#ff8c42',
+    fill:'rgba(255,140,66,0.14)',
+    unit:'°C'
+  });
+  tempChart.setData(tLabels,tValues);
+}
+
 function applyStatus(d){
+  lastStatus=d||null;
   var pct=parseFloat(d.level)||0;
   document.getElementById('vl').textContent=pct.toFixed(1);
   document.getElementById('vg').textContent=pct.toFixed(1);
@@ -182,6 +355,23 @@ function applyStatus(d){
   document.getElementById('ddiam').textContent=d.diameter>0?d.diameter+' см':'Не задан';
   document.getElementById('drec').textContent=d.records+' / '+(d.records_max||168);
   document.getElementById('dver').textContent=d.version||'—';
+
+  document.getElementById('du24').textContent=fmtLit(d.used24);
+  document.getElementById('dr24').textContent=fmtLpd(d.rate24);
+  document.getElementById('du7').textContent=fmtLit(d.used7d);
+  document.getElementById('dr7').textContent=fmtLpd(d.rate7d);
+  var days=parseFloat(d.daysleft);
+  document.getElementById('ddays').textContent=isNaN(days)?'--':(days.toFixed(1)+' дн');
+  var etaEl=document.getElementById('deta');
+  if(!isNaN(days) && d.eta_empty_ts){
+    etaEl.textContent='При текущем расходе вода закончится примерно: '+kyivFull(d.eta_empty_ts)+' (Киев)';
+  } else if(d.span24 || d.span7d){
+    etaEl.textContent='Прогноз появится после накопления стабильного расхода.';
+  } else {
+    etaEl.textContent='Появится после накопления истории.';
+  }
+
+  if(lastHist) renderHistory(lastHist);
 }
 
 function fetchStatus(){
@@ -221,59 +411,69 @@ function loadH(h,btn){
   curH=h;
   document.querySelectorAll('.cbtn').forEach(function(b){b.classList.remove('on');});
   if(btn)btn.classList.add('on');
-  fetch('/api/history?h='+h).then(function(r){return r.json();}).then(function(data){
-    var labels=data.labels||[];
-    var cv=document.getElementById('ch');
-    var nd=document.getElementById('nd');
-    var tcv=document.getElementById('cht');
-    var ndt=document.getElementById('ndt');
-    if(!labels.length){
-      nd.style.display='block';cv.style.display='none';
-      ndt.style.display='block';tcv.style.display='none';
-      return;
-    }
-    nd.style.display='none'; cv.style.display='block';
-    if(!chart)chart=new TinyChart(cv,{
-      formatY:function(v,d){
-        var txt=v.toFixed(1)+'%';
-        if(!d || !d.s || !d.s.length) return txt;
-        var k=NaN;
-        for(var i=0;i<d.v.length;i++){
-          var pv=parseFloat(d.v[i]), sv=parseFloat(d.s[i]);
-          if(!isNaN(pv) && !isNaN(sv) && pv>0){ k=sv/pv; break; }
-        }
-        if(isNaN(k)) return txt;
-        return txt+'  ('+(v*k).toFixed(1)+' л)';
-      },
-      formatTooltip:function(idx,d,v){
-        var txt=(d.l[idx]||'')+': '+v.toFixed(1)+'%';
-        var sv=parseFloat((d.s||[])[idx]);
-        if(!isNaN(sv)) txt+=' / '+sv.toFixed(1)+' л';
-        return txt;
-      }
-    });
-    chart.setData(labels,data.values,data.volumes||[]);
+  fetch('/api/history?h='+h).then(function(r){return r.json();}).then(renderHistory);
+}
 
-    var tLabels=[], tValues=[];
-    (data.temps||[]).forEach(function(v,i){
-      var n=parseFloat(v);
-      if(!isNaN(n) && labels[i]!==undefined){
-        tLabels.push(labels[i]);
-        tValues.push(n);
+function renderEvents(res){
+  var root=document.getElementById('evList');
+  var empty=document.getElementById('evEmpty');
+  var items=(res&&res.events)||[];
+  if(!items.length){
+    root.innerHTML='';
+    empty.style.display='block';
+    empty.textContent='Событий за последние '+((res&&res.window_min)||60)+' минут не обнаружено';
+    return;
+  }
+  empty.style.display='none';
+  root.innerHTML=items.map(function(e){
+    var delta=parseFloat(e.delta_l);
+    var rate=parseFloat(e.rate_lph);
+    var sign=(delta>0?'+':'');
+    return '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--card2)">'+
+      '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center">'+
+        '<b style="color:'+eventColor(e.type)+';font-size:.9rem">'+eventTypeLabel(e.type)+'</b>'+
+        '<span class="ts">'+kyivHM(e.ts)+'</span>'+
+      '</div>'+
+      '<div class="ts" style="margin-top:6px;color:var(--txt)">'+
+        'Δ '+(isNaN(delta)?'--':(sign+delta.toFixed(1)+' л'))+
+        (isNaN(rate)?'':' • '+rate.toFixed(1)+' л/ч')+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+
+function fetchEvents(){
+  if(eventsBusy)return;
+  eventsBusy=true;
+  fetch('/api/events').then(function(r){return r.json();}).then(renderEvents)
+    .catch(function(){
+      document.getElementById('evEmpty').style.display='block';
+      document.getElementById('evEmpty').textContent='Ошибка чтения /api/events';
+    })
+    .finally(function(){eventsBusy=false;});
+}
+
+function restoreHistoryBin(kind,input){
+  var file=input && input.files && input.files[0];
+  if(!file)return;
+  if(!confirm('Восстановить '+(kind==='hourly'?'hourly':'recent')+' историю из файла?')){ input.value=''; return; }
+  var url=(kind==='hourly')?'/api/history.bin':'/api/history_recent.bin';
+  var fd=new FormData();
+  fd.append('file', file, file.name);
+  fetch(url,{method:'POST',body:fd})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      if(res && res.ok){
+        showToast('История восстановлена: '+(res.kind||kind)+' ('+(res.count||0)+')','ok');
+        fetchStatus();
+        loadH(curH);
+        fetchEvents();
+      } else {
+        showToast('Ошибка восстановления истории','err');
       }
-    });
-    if(!tValues.length){
-      ndt.style.display='block';tcv.style.display='none';
-      return;
-    }
-    ndt.style.display='none'; tcv.style.display='block';
-    if(!tempChart)tempChart=new TinyChart(tcv,{
-      line:'#ff8c42',
-      fill:'rgba(255,140,66,0.14)',
-      unit:'°C'
-    });
-    tempChart.setData(tLabels,tValues);
-  });
+    })
+    .catch(function(){showToast('Ошибка загрузки файла истории','err');})
+    .finally(function(){ input.value=''; });
 }
 
 function measure(){
@@ -284,8 +484,10 @@ function measure(){
 
 fetchStatus();
 loadH(24);
+fetchEvents();
 setInterval(fetchStatus,5000);
 setInterval(function(){loadH(curH);},60000);
+setInterval(fetchEvents,60000);
 </script>
 </body>
 </html>
