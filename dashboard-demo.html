@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WaterSense — Demo</title>
+<style>
+/* ── Variables & Reset ── */
+:root{
+  --bg:#0f1624;--card:#1a2332;--card2:#1f2d3d;
+  --accent:#00b4d8;--accent2:#0077b6;
+  --ok:#4caf50;--warn:#ff9800;--err:#f44336;
+  --txt:#e0e6ed;--muted:#8899aa;--border:#2a3a4a;--r:12px
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg);color:var(--txt);min-height:100vh}
+a{color:inherit;text-decoration:none}
+
+/* ── Nav ── */
+.nav{background:var(--card);border-bottom:1px solid var(--border);
+  padding:0 20px;display:flex;align-items:center;justify-content:space-between;
+  height:60px;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
+.brand{font-weight:700;font-size:1.1rem;color:var(--accent);display:flex;align-items:center;gap:8px}
+.brand svg{flex-shrink:0}
+.nav-links{display:flex;gap:4px;align-items:center}
+.nav-links a{color:var(--muted);padding:7px 14px;border-radius:8px;
+  font-size:.9rem;transition:.2s;cursor:pointer}
+.nav-links a:hover,.nav-links a.on{color:var(--txt);background:var(--card2)}
+.demo-badge{font-size:.7rem;background:var(--warn);color:#000;
+  padding:3px 9px;border-radius:20px;font-weight:700;letter-spacing:.5px;margin-left:6px}
+
+/* ── Layout ── */
+.wrap{max-width:1100px;margin:0 auto;padding:24px 20px}
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px}
+
+/* ── Stat cards ── */
+.clabel{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;
+  color:var(--muted);margin-bottom:10px}
+.cval{font-size:2.8rem;font-weight:700;line-height:1;color:var(--accent)}
+.cunit{font-size:1.1rem;color:var(--muted);margin-left:3px}
+
+/* ── Level bar ── */
+.lbar{height:10px;background:var(--card2);border-radius:5px;overflow:hidden;margin:14px 0 6px}
+.lfill{height:100%;border-radius:5px;transition:width .8s ease,background .4s}
+
+/* ── Gauge ── */
+.gauge{display:flex;flex-direction:column;align-items:center;padding:8px 0}
+.gring{width:140px;height:140px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;position:relative;--p:0;
+  transition:--p .8s ease}
+.gring::before{content:'';position:absolute;inset:0;border-radius:50%;
+  background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--card2) 0);
+  transition:background .8s ease}
+.gring::after{content:'';position:absolute;width:100px;height:100px;
+  border-radius:50%;background:var(--card)}
+.gtext{position:relative;z-index:1;text-align:center;line-height:1.2}
+
+/* ── Status bar ── */
+.sbar{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
+.sdot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;flex-shrink:0}
+.g{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.y{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+.r{background:var(--err);box-shadow:0 0 6px var(--err)}
+.ts{font-size:.8rem;color:var(--muted)}
+
+/* ── Chart ── */
+.chartbox{width:100%}
+canvas{display:block;width:100%!important}
+.ctrls{display:flex;gap:6px}
+.cbtn{padding:4px 12px;border:1px solid var(--border);border-radius:6px;
+  background:transparent;color:var(--muted);cursor:pointer;font-size:.8rem;transition:.2s}
+.cbtn.on{background:var(--accent);border-color:var(--accent);color:#000;font-weight:600}
+
+/* ── Details rows ── */
+.drow{display:flex;justify-content:space-between;align-items:center;
+  padding:9px 0;border-bottom:1px solid var(--border);font-size:.9rem}
+.drow:last-child{border:none}
+.dlbl{color:var(--muted)}
+.dval{font-weight:600}
+
+/* ── Buttons ── */
+.btn{display:inline-block;width:100%;padding:10px 20px;border:none;
+  border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:500;
+  text-align:center;transition:.2s}
+.btn+.btn{margin-top:10px}
+.btn-p{background:var(--accent);color:#000}
+.btn-p:hover{background:var(--accent2);color:#fff}
+.btn-s{background:var(--card2);border:1px solid var(--border);color:var(--txt)}
+.btn-s:hover{border-color:var(--accent)}
+.btn-d{background:transparent;border:1px solid var(--err);color:var(--err)}
+.btn-d:hover{background:var(--err);color:#fff}
+
+/* ── Settings form ── */
+.sec{font-size:.72rem;text-transform:uppercase;letter-spacing:1px;
+  color:var(--accent);padding:8px 0;border-bottom:1px solid var(--border);margin:22px 0 16px}
+.fg{margin-bottom:16px}
+label{display:block;font-size:.83rem;color:var(--muted);margin-bottom:5px}
+input[type=text],input[type=number],input[type=password],select{
+  width:100%;padding:9px 13px;background:var(--card2);border:1px solid var(--border);
+  border-radius:8px;color:var(--txt);font-size:.9rem;transition:.2s;-webkit-appearance:none}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.toggle{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+.toggle input{display:none}
+.tslider{width:42px;height:24px;background:var(--border);
+  border-radius:12px;position:relative;transition:.3s;flex-shrink:0}
+.tslider:after{content:'';position:absolute;width:18px;height:18px;
+  background:#fff;border-radius:50%;top:3px;left:3px;transition:.3s}
+.toggle input:checked+.tslider{background:var(--accent)}
+.toggle input:checked+.tslider:after{left:21px}
+.hint{font-size:.78rem;color:var(--muted);margin-top:4px}
+
+/* ── Pulse animation for live dot ── */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.live-dot{animation:pulse 2s infinite}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--card);
+  border:1px solid var(--border);border-radius:10px;padding:13px 20px;
+  font-size:.9rem;z-index:999;transform:translateY(80px);opacity:0;
+  transition:.3s;pointer-events:none;max-width:300px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.ok{border-color:var(--ok)}
+.toast.err{border-color:var(--err)}
+.toast.warn{border-color:var(--warn)}
+
+/* ── Page transitions ── */
+.page{display:none}
+.page.active{display:block}
+
+/* ── Responsive ── */
+@media(max-width:600px){
+  .wrap{padding:14px}
+  .card{padding:16px}
+  .cval{font-size:2.2rem}
+  .row2{grid-template-columns:1fr}
+  .brand span{display:none}
+  .nav-links a{padding:7px 10px;font-size:.82rem}
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ NAV ══════════════════ -->
+<nav class="nav">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2c-5.33 4-8 7.56-8 10.5C4 17.53 7.58 22 12 22s8-4.47 8-9.5C20 9.56 17.33 6 12 2z"/>
+    </svg>
+    <span>WaterSense</span>
+  </div>
+  <div class="nav-links">
+    <a id="nav-dash" class="on" onclick="goTo('dash')">Дашборд</a>
+    <a id="nav-set" onclick="goTo('set')">Настройки</a>
+    <span class="demo-badge">DEMO</span>
+  </div>
+</nav>
+
+<!-- ══════════════════ DASHBOARD PAGE ══════════════════ -->
+<div id="pg-dash" class="page active">
+<div class="wrap">
+
+  <!-- Status bar -->
+  <div class="sbar">
+    <span><span class="sdot g live-dot"></span><span style="font-size:.85rem">WiFi ✓</span></span>
+    <span><span class="sdot g live-dot"></span><span style="font-size:.85rem">MQTT ✓</span></span>
+    <span><span class="sdot r"></span><span style="font-size:.85rem">Telegram ✗</span></span>
+    <span class="ts" id="upd-time"></span>
+  </div>
+
+  <!-- Top stat cards -->
+  <div class="grid g4" style="margin-bottom:18px">
+    <!-- Level % -->
+    <div class="card">
+      <div class="clabel">Уровень воды</div>
+      <div><span class="cval" id="v-level">--</span><span class="cunit">%</span></div>
+      <div class="lbar"><div class="lfill" id="v-bar" style="width:0%"></div></div>
+      <div class="ts" id="v-hint">&nbsp;</div>
+    </div>
+    <!-- Gauge -->
+    <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div class="gauge">
+        <div class="gring" id="v-gauge">
+          <div class="gtext">
+            <div class="cval" id="v-gauge-val" style="font-size:1.8rem">--</div>
+            <div class="ts">%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Volume -->
+    <div class="card">
+      <div class="clabel">Объём в бочке</div>
+      <div><span class="cval" id="v-vol">--</span><span class="cunit">л</span></div>
+      <div class="ts" style="margin-top:8px">из <span id="v-total">200.0</span> л</div>
+    </div>
+    <!-- Distance -->
+    <div class="card">
+      <div class="clabel">Расстояние</div>
+      <div><span class="cval" id="v-dist">--</span><span class="cunit">см</span></div>
+      <div class="ts" style="margin-top:8px">Свободно: <span id="v-free">--</span> л</div>
+    </div>
+    <!-- Temperature DS18B20 -->
+    <div class="card">
+      <div class="clabel">Температура DS18B20</div>
+      <div><span class="cval" id="v-temp">--</span><span class="cunit">°C</span></div>
+      <div class="ts" id="v-thint" style="margin-top:8px">&nbsp;</div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card" style="margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div class="clabel" style="margin:0">История уровня</div>
+      <div class="ctrls">
+        <button class="cbtn on" onclick="showChart(24,this)">24ч</button>
+        <button class="cbtn" onclick="showChart(72,this)">3 дня</button>
+        <button class="cbtn" onclick="showChart(168,this)">7 дней</button>
+      </div>
+    </div>
+    <div class="chartbox"><canvas id="ch"></canvas></div>
+  </div>
+
+  <!-- Details & Actions -->
+  <div class="grid g2">
+    <div class="card">
+      <div class="clabel">Подробности системы</div>
+      <div class="drow"><span class="dlbl">IP адрес</span><span class="dval">192.168.1.45</span></div>
+      <div class="drow"><span class="dlbl">WiFi сигнал</span><span class="dval">-58 dBm (хороший)</span></div>
+      <div class="drow"><span class="dlbl">Свободно ОЗУ</span><span class="dval" id="d-heap">32 KB</span></div>
+      <div class="drow"><span class="dlbl">Диаметр бочки</span><span class="dval">60 см</span></div>
+      <div class="drow"><span class="dlbl">Записей истории</span><span class="dval" id="d-recs">72 / 168</span></div>
+      <div class="drow"><span class="dlbl">Версия прошивки</span><span class="dval">1.0.0</span></div>
+    </div>
+    <div class="card">
+      <div class="clabel">Действия</div>
+      <button class="btn btn-p" onclick="doMeasure()">⚡ Замер сейчас</button>
+      <button class="btn btn-s" onclick="doExport()">📥 Экспорт CSV</button>
+      <button class="btn btn-s" onclick="showToast('OTA в демо-режиме недоступно','warn')">🔄 Обновить прошивку</button>
+      <button class="btn btn-s" onclick="doClearHistory()">🗑 Очистить историю</button>
+      <button class="btn btn-d" style="margin-top:14px" onclick="doReset()">Сброс настроек</button>
+    </div>
+  </div>
+
+</div>
+</div><!-- /pg-dash -->
+
+
+<!-- ══════════════════ SETTINGS PAGE ══════════════════ -->
+<div id="pg-set" class="page">
+<div class="wrap">
+<form id="frm" onsubmit="saveSettings(event)">
+
+  <!-- WiFi -->
+  <div class="sec">📶 WiFi</div>
+  <div class="row2">
+    <div class="fg">
+      <label>Название сети (SSID)</label>
+      <input type="text" name="ws" value="HomeNetwork" maxlength="63">
+    </div>
+    <div class="fg">
+      <label>Пароль</label>
+      <input type="password" name="wp" value="supersecret123" maxlength="63">
+    </div>
+  </div>
+  <p class="hint">Если WiFi не указан или недоступен — устройство запустит точку доступа
+    <b>WaterSensor-XXXXXX</b> (пароль: watersensor)</p>
+
+  <!-- Sensor -->
+  <div class="sec">📏 Датчик HC-SR04</div>
+  <div class="row2">
+    <div class="fg">
+      <label>Пин TRIG (GPIO номер)</label>
+      <input type="number" name="tp" min="0" max="16" value="14">
+      <p class="hint">D5 = GPIO14, D6 = GPIO12, D7 = GPIO13</p>
+    </div>
+    <div class="fg">
+      <label>Пин ECHO (GPIO номер)</label>
+      <input type="number" name="ep" min="0" max="16" value="12">
+    </div>
+  </div>
+  <div class="row2">
+    <div class="fg">
+      <label>Расстояние до дна пустой бочки (см)</label>
+      <input type="number" name="ed" step="0.1" min="1" max="500" value="100">
+      <p class="hint">Сколько см от датчика до дна бочки</p>
+    </div>
+    <div class="fg">
+      <label>Расстояние до воды при полной бочке (см)</label>
+      <input type="number" name="fd" step="0.1" min="1" max="500" value="5">
+      <p class="hint">Минимальное расстояние (бочка полная)</p>
+    </div>
+  </div>
+  <div class="row2">
+    <div class="fg">
+      <label>Внутренний диаметр бочки (см)</label>
+      <input type="number" name="bd" step="0.1" min="0" max="500" value="60">
+      <p class="hint">0 — не вычислять объём в литрах</p>
+    </div>
+    <div class="fg">
+      <label>Число замеров для усреднения (1–10)</label>
+      <input type="number" name="as" min="1" max="10" value="5">
+    </div>
+  </div>
+  <div class="fg" style="max-width:260px">
+    <label>Интервал измерений (секунды)</label>
+    <input type="number" name="ms" min="10" max="3600" value="60">
+  </div>
+
+  <!-- DS18B20 -->
+  <div class="sec">🌡️ Датчик температуры DS18B20</div>
+  <label class="toggle" style="margin-bottom:14px">
+    <input type="checkbox" name="de" id="tde" checked onchange="vis('ds18Box',this)">
+    <span class="tslider"></span>
+    <span>Включить DS18B20</span>
+  </label>
+  <div id="ds18Box">
+    <div class="fg" style="max-width:260px">
+      <label>Пин данных (GPIO номер)</label>
+      <input type="number" name="dp" min="0" max="16" value="2">
+      <p class="hint">D4 = GPIO2. Нужен подтягивающий резистор 4.7 кОм к 3.3V между DATA и VCC.</p>
+    </div>
+  </div>
+
+  <!-- MQTT -->
+  <div class="sec">📡 MQTT</div>
+  <label class="toggle" style="margin-bottom:14px">
+    <input type="checkbox" name="me" id="tme" checked onchange="vis('mqttBox',this)">
+    <span class="tslider"></span>
+    <span>Включить MQTT</span>
+  </label>
+  <div id="mqttBox">
+    <div class="row2">
+      <div class="fg">
+        <label>Сервер (хост или IP)</label>
+        <input type="text" name="mh" value="192.168.1.100" maxlength="63">
+      </div>
+      <div class="fg">
+        <label>Порт</label>
+        <input type="number" name="mp" min="1" max="65535" value="1883">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="fg">
+        <label>Логин (необязательно)</label>
+        <input type="text" name="mu" value="mqtt_user" maxlength="31">
+      </div>
+      <div class="fg">
+        <label>Пароль (необязательно)</label>
+        <input type="password" name="mq" value="mqtt_pass" maxlength="31">
+      </div>
+    </div>
+    <div class="fg" style="max-width:360px">
+      <label>Базовый топик</label>
+      <input type="text" name="mt" value="home/water" maxlength="63">
+      <p class="hint">Публикуются: <b>/level</b>, <b>/distance</b>, <b>/volume</b>, <b>/free</b>, <b>/temperature</b>, <b>/json</b></p>
+    </div>
+  </div>
+
+  <!-- Telegram -->
+  <div class="sec">✈️ Telegram</div>
+  <label class="toggle" style="margin-bottom:14px">
+    <input type="checkbox" name="te" id="tte" onchange="vis('tgBox',this)">
+    <span class="tslider"></span>
+    <span>Включить Telegram бот</span>
+  </label>
+  <div id="tgBox" style="display:none">
+    <div class="fg">
+      <label>Токен бота (от @BotFather)</label>
+      <input type="text" name="tt" placeholder="123456789:AABBcc..." maxlength="127">
+    </div>
+    <div class="fg" style="max-width:260px">
+      <label>Chat ID (ваш или группы)</label>
+      <input type="text" name="tc" placeholder="-100123456789" maxlength="31">
+      <p class="hint">Узнать через @userinfobot</p>
+    </div>
+    <div class="row2">
+      <div class="fg">
+        <label>Оповещение — мало воды (%)</label>
+        <input type="number" name="tl" min="1" max="99" step="1" value="20">
+        <p class="hint">Алерт, если уровень ниже этого значения</p>
+      </div>
+      <div class="fg">
+        <label>Оповещение — много воды (%)</label>
+        <input type="number" name="th" min="1" max="100" step="1" value="95">
+        <p class="hint">Алерт, если уровень выше этого значения</p>
+      </div>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" name="td">
+      <span class="tslider"></span>
+      <span>Ежедневный отчёт в полночь</span>
+    </label>
+    <div class="card" style="margin-top:16px;background:var(--card2);border-style:dashed">
+      <div style="font-size:.85rem;color:var(--muted);line-height:1.7">
+        <b style="color:var(--txt)">Команды бота:</b><br>
+        /level — текущий уровень<br>
+        /status — полный статус с объёмом<br>
+        /help — список команд + ссылка на веб-интерфейс
+      </div>
+    </div>
+  </div>
+
+  <!-- System -->
+  <div class="sec">⚙️ Система</div>
+  <div class="row2">
+    <div class="fg">
+      <label>Имя устройства (mDNS / OTA)</label>
+      <input type="text" name="dn" value="watersensor" maxlength="31">
+      <p class="hint">Доступ: <b>http://watersensor.local</b></p>
+    </div>
+    <div class="fg">
+      <label>Пароль OTA-обновления</label>
+      <input type="password" name="op" value="otapassword" maxlength="31">
+      <p class="hint">Для ArduinoOTA и веб-обновления (/update)</p>
+    </div>
+  </div>
+
+  <!-- Save -->
+  <div style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap">
+    <button type="submit" class="btn btn-p" style="width:auto;padding:11px 32px">
+      💾 Сохранить и перезагрузить
+    </button>
+    <button type="button" class="btn btn-s" style="width:auto;padding:11px 24px"
+      onclick="goTo('dash')">Отмена</button>
+  </div>
+
+</form>
+</div>
+</div><!-- /pg-set -->
+
+
+<div class="toast" id="toast"></div>
+
+<!-- ══════════════════ SCRIPT ══════════════════ -->
+<script>
+'use strict';
+
+/* ─── TinyChart (встроено) ─── */
+(function(w){
+function TC(el,opts){
+  this.c=typeof el==='string'?document.getElementById(el):el;
+  this.o=Object.assign({
+    bg:'transparent',grid:'#2a3a4a',line:'#00b4d8',
+    fill:'rgba(0,180,216,0.12)',text:'#8899aa',
+    pad:{t:20,r:20,b:42,l:52}
+  },opts||{});
+  this.d={l:[],v:[]};
+  var me=this;
+  this.c.addEventListener('mousemove',function(e){me._mv(e);});
+  this.c.addEventListener('touchmove',function(e){me._tv(e);},{passive:true});
+  this.c.addEventListener('mouseleave',function(){me._draw();});
+}
+TC.prototype={
+  setData:function(labels,values){
+    this.d={l:labels,v:values.map(Number)};
+    this._resize(); this._draw();
+  },
+  _resize:function(){
+    var dpr=window.devicePixelRatio||1;
+    var w=this.c.parentElement.clientWidth||300;
+    this.c.width=w*dpr; this.c.height=260*dpr;
+    this.c.style.width=w+'px'; this.c.style.height='260px';
+    this.c.getContext('2d').scale(dpr,dpr);
+    this._w=w; this._h=260;
+  },
+  _draw:function(hx){
+    var c=this.c,ctx=c.getContext('2d'),o=this.o,d=this.d,p=o.pad;
+    var w=this._w||c.width,h=this._h||c.height;
+    ctx.clearRect(0,0,w,h);
+    if(!d.v.length)return;
+    var gw=w-p.l-p.r,gh=h-p.t-p.b;
+    var vals=d.v,n=vals.length;
+    var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+    var rng=mx-mn||1;
+    var xS=n>1?gw/(n-1):gw;
+    var X=function(i){return p.l+i*xS;};
+    var Y=function(v){return p.t+gh-(v-mn)/rng*gh;};
+    // grid & y-labels
+    ctx.strokeStyle=o.grid; ctx.lineWidth=1;
+    ctx.fillStyle=o.text; ctx.font='11px sans-serif'; ctx.textAlign='right';
+    for(var gi=0;gi<=4;gi++){
+      var gy=p.t+gh/4*gi;
+      ctx.beginPath(); ctx.moveTo(p.l,gy); ctx.lineTo(p.l+gw,gy); ctx.stroke();
+      ctx.fillText((mx-rng/4*gi).toFixed(1)+'%',p.l-6,gy+4);
+    }
+    // fill
+    ctx.beginPath();
+    ctx.moveTo(X(0),Y(vals[0]));
+    for(var i=1;i<n;i++) ctx.lineTo(X(i),Y(vals[i]));
+    ctx.lineTo(X(n-1),h-p.b); ctx.lineTo(X(0),h-p.b);
+    ctx.closePath(); ctx.fillStyle=o.fill; ctx.fill();
+    // line
+    ctx.beginPath(); ctx.strokeStyle=o.line; ctx.lineWidth=2; ctx.lineJoin='round';
+    ctx.moveTo(X(0),Y(vals[0]));
+    for(var j=1;j<n;j++) ctx.lineTo(X(j),Y(vals[j]));
+    ctx.stroke();
+    // x-labels (max 7)
+    ctx.fillStyle=o.text; ctx.textAlign='center';
+    var step=Math.max(1,Math.floor(n/7));
+    for(var k=0;k<n;k++){
+      if(d.l[k]&&(k%step===0||k===n-1)) ctx.fillText(d.l[k],X(k),h-p.b+16);
+    }
+    // hover
+    if(hx!==undefined){
+      var idx=Math.round((hx-p.l)/xS);
+      if(idx<0)idx=0; if(idx>=n)idx=n-1;
+      var cx=X(idx),cy=Y(vals[idx]);
+      ctx.setLineDash([4,4]); ctx.strokeStyle=o.text; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(cx,p.t); ctx.lineTo(cx,h-p.b); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2);
+      ctx.fillStyle=o.line; ctx.fill();
+      var lbl=d.l[idx]||('точка '+(idx+1));
+      var txt=lbl+': '+vals[idx].toFixed(1)+'%';
+      ctx.font='12px sans-serif';
+      var tw=ctx.measureText(txt).width+16;
+      var tx=cx-tw/2; if(tx<p.l)tx=p.l; if(tx+tw>w-p.r)tx=w-p.r-tw;
+      var ty=cy-36; if(ty<p.t)ty=cy+10;
+      ctx.fillStyle='#1a2332';
+      ctx.beginPath(); ctx.rect(tx,ty,tw,24); ctx.fill();
+      ctx.fillStyle='#e0e6ed'; ctx.textAlign='left';
+      ctx.fillText(txt,tx+8,ty+16);
+    }
+  },
+  _px:function(e){var r=this.c.getBoundingClientRect();return e.clientX-r.left;},
+  _mv:function(e){this._draw(this._px(e));},
+  _tv:function(e){if(e.touches.length)this._draw(this._px(e.touches[0]));},
+};
+w.TinyChart=TC;
+})(window);
+
+
+/* ─── Fake live state ─── */
+var state = {
+  level:   67.3,
+  dist:    32.7,
+  total:   200.0,
+  temp:    18.4,   // DS18B20, °C
+};
+// Derived
+function calcVol(lvl){ return +(lvl/100 * state.total).toFixed(1); }
+function calcFree(lvl){ return +(state.total - calcVol(lvl)).toFixed(1); }
+function barColor(pct){
+  if(pct<20) return'var(--err)';
+  if(pct<40) return'var(--warn)';
+  return'linear-gradient(90deg,var(--accent2),var(--accent))';
+}
+
+
+/* ─── Generate 168h of fake history (7 days, hourly) ─── */
+function genHistory(){
+  var now = Date.now();
+  var h24={labels:[],values:[]};
+  var h72={labels:[],values:[]};
+  var h168={labels:[],values:[]};
+
+  // Start at ~95% 7 days ago, gradually drop to current ~67%
+  var base = 95, target = 67.3;
+  var totalHours = 168;
+  for(var i = totalHours; i >= 0; i--){
+    var t = new Date(now - i * 3600000);
+    var progress = (totalHours - i) / totalHours;
+    // Add daily rhythm: level drops 0-12h (usage), rises 12-24h (rain/refill)
+    var hourOfDay = t.getHours();
+    var dailyWave = Math.sin((hourOfDay / 24) * Math.PI * 2 - Math.PI/2) * 2.5;
+    var trend = base + (target - base) * Math.pow(progress, 0.7);
+    var noise = (Math.random() - 0.5) * 1.2;
+    var val = Math.max(60, Math.min(98, trend + dailyWave + noise));
+    val = +val.toFixed(1);
+
+    var hh = t.getHours().toString().padStart(2,'0');
+    var mm = t.getMinutes().toString().padStart(2,'0');
+    var day = t.getDate();
+    var mon = t.toLocaleDateString('ru',{month:'short'});
+
+    if(i <= 24){
+      h24.labels.push(hh+':00');
+      h24.values.push(val);
+    }
+    if(i <= 72){
+      h72.labels.push(i%6===0 ? day+' '+mon+' '+hh+':00' : '');
+      h72.values.push(val);
+    }
+    h168.labels.push(i%24===0 ? day+' '+mon : '');
+    h168.values.push(val);
+  }
+  return {h24:h24, h72:h72, h168:h168};
+}
+
+var history = genHistory();
+var curHours = 24;
+var chart = null;
+
+
+/* ─── UI update ─── */
+function applyState(lvl){
+  var pct = +lvl.toFixed(1);
+  var vol = calcVol(pct);
+  var free = calcFree(pct);
+  var dist = +(state.dist + (67.3 - pct) * 0.67).toFixed(1); // dist increases as level drops
+
+  document.getElementById('v-level').textContent = pct.toFixed(1);
+  document.getElementById('v-gauge-val').textContent = pct.toFixed(1);
+  document.getElementById('v-bar').style.cssText =
+    'width:'+pct+'%;background:'+barColor(pct);
+  document.getElementById('v-gauge').style.setProperty('--p', pct);
+  document.getElementById('v-vol').textContent = vol;
+  document.getElementById('v-free').textContent = free;
+  document.getElementById('v-dist').textContent = dist;
+
+  var hint = pct < 20 ? '⚠️ Мало воды!' : pct > 90 ? '🔵 Почти полная!' : '';
+  document.getElementById('v-hint').textContent = hint || '\u00a0';
+
+  var tc = +state.temp.toFixed(1);
+  document.getElementById('v-temp').textContent = tc.toFixed(1);
+  var th = tc < 5 ? '🥶 Очень холодная' : tc > 35 ? '🔥 Горячая' : '';
+  document.getElementById('v-thint').textContent = th || '\u00a0';
+
+  document.getElementById('upd-time').textContent =
+    'Обновлено: ' + new Date().toLocaleTimeString('ru');
+}
+
+
+/* ─── Chart ─── */
+function showChart(h, btn){
+  curHours = h;
+  document.querySelectorAll('.cbtn').forEach(function(b){b.classList.remove('on');});
+  if(btn) btn.classList.add('on');
+  var d = history['h'+h];
+  if(!chart) chart = new TinyChart(document.getElementById('ch'));
+  chart.setData(d.labels, d.values);
+}
+
+
+/* ─── Live simulation: level and temperature slowly drift ─── */
+function tick(){
+  var delta = (Math.random() - 0.6) * 0.4;
+  state.level = Math.max(15, Math.min(99, state.level + delta));
+  // Temperature drifts ±0.1°C
+  state.temp += (Math.random() - 0.5) * 0.2;
+  state.temp = Math.max(5, Math.min(40, state.temp));
+  applyState(state.level);
+}
+
+
+/* ─── Actions ─── */
+function doMeasure(){
+  // Simulate a fresh reading with slight jitter
+  var jitter = (Math.random() - 0.5) * 0.6;
+  state.level = Math.max(15, Math.min(99, state.level + jitter));
+  applyState(state.level);
+  showToast('Замер выполнен ✓','ok');
+}
+
+function doExport(){
+  // Build a fake CSV and download it
+  var lines = ['datetime,level_%,volume_l'];
+  var now = Date.now();
+  var d = history.h168;
+  for(var i=0;i<d.values.length;i++){
+    var t = new Date(now - (168-i)*3600000);
+    var dt = t.toISOString().replace('T',' ').substring(0,19);
+    var vol = calcVol(d.values[i]);
+    lines.push(dt+','+d.values[i]+','+vol);
+  }
+  var blob = new Blob([lines.join('\n')],{type:'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'watersense-history.csv';
+  a.click();
+  showToast('CSV экспортирован','ok');
+}
+
+function doClearHistory(){
+  if(!confirm('Очистить всю историю?')) return;
+  history = genHistory(); // regenerate empty-ish data
+  // Actually just reset to current level flat line
+  var flat = [];
+  for(var i=0;i<24;i++) flat.push(state.level);
+  var lbs = [];
+  for(var j=23;j>=0;j--){
+    var t = new Date(Date.now()-j*3600000);
+    lbs.push(t.getHours().toString().padStart(2,'0')+':00');
+  }
+  history.h24 = {labels:lbs, values:flat};
+  document.getElementById('d-recs').textContent = '1 / 168';
+  showChart(curHours);
+  showToast('История очищена','ok');
+}
+
+function doReset(){
+  if(!confirm('Сбросить все настройки к заводским?')) return;
+  showToast('В demo-режиме сброс недоступен','warn');
+}
+
+function saveSettings(e){
+  e.preventDefault();
+  showToast('Настройки сохранены. Перезагрузка...','ok');
+  setTimeout(function(){ goTo('dash'); }, 2000);
+}
+
+function vis(boxId,chk){
+  document.getElementById(boxId).style.display = chk.checked ? 'block' : 'none';
+}
+
+
+/* ─── Router ─── */
+function goTo(page){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  document.getElementById('pg-'+page).classList.add('active');
+  document.querySelectorAll('.nav-links a').forEach(function(a){a.classList.remove('on');});
+  document.getElementById('nav-'+page).classList.add('on');
+
+  if(page === 'dash'){
+    // Re-init chart after page becomes visible
+    setTimeout(function(){
+      showChart(curHours);
+    }, 50);
+  }
+}
+
+
+/* ─── Toast ─── */
+function showToast(msg, type){
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + (type||'');
+  clearTimeout(el._t);
+  el._t = setTimeout(function(){el.className='toast';}, 3500);
+}
+
+
+/* ─── Init ─── */
+applyState(state.level);
+setTimeout(function(){ showChart(24); }, 100); // after layout
+setInterval(tick, 5000); // live updates every 5s
+</script>
+
+</body>
+</html>

@@ -70,6 +70,21 @@
       <input type="number" name="ms" min="10" max="3600" placeholder="60">
     </div>
 
+    <!-- DS18B20 Temperature Sensor -->
+    <div class="sec">🌡️ Датчик температуры DS18B20</div>
+    <label class="toggle" style="margin-bottom:14px">
+      <input type="checkbox" name="de" id="tde">
+      <span class="tslider"></span>
+      <span>Включить DS18B20</span>
+    </label>
+    <div id="ds18Box">
+      <div class="fg" style="max-width:260px">
+        <label>Пин данных (GPIO номер)</label>
+        <input type="number" name="dp" min="0" max="16" placeholder="2">
+        <p class="hint">D4 = GPIO2. Нужен подтягивающий резистор 4.7 кОм к 3.3V между DATA и VCC.</p>
+      </div>
+    </div>
+
     <!-- MQTT -->
     <div class="sec">📡 MQTT</div>
     <label class="toggle" style="margin-bottom:14px">
@@ -171,6 +186,7 @@ function showToast(m,t){
 
 // Toggle visibility
 function vis(boxId,chk){document.getElementById(boxId).style.display=chk.checked?'block':'none';}
+document.getElementById('tde').addEventListener('change',function(){vis('ds18Box',this);});
 document.getElementById('tme').addEventListener('change',function(){vis('mqttBox',this);});
 document.getElementById('tte').addEventListener('change',function(){vis('tgBox',this);});
 
@@ -183,6 +199,7 @@ fetch('/api/config').then(function(r){return r.json();}).then(function(c){
     if(el.type==='checkbox') el.checked=!!c[k];
     else el.value=c[k]!==undefined&&c[k]!==null?c[k]:'';
   });
+  vis('ds18Box',f.elements['de']);
   vis('mqttBox',f.elements['me']);
   vis('tgBox',f.elements['te']);
 }).catch(function(){showToast('Ошибка загрузки настроек','err');});

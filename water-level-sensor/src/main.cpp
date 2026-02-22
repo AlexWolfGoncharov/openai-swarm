@@ -91,8 +91,8 @@ void setupArduinoOTA() {
 // ── Measure callback ──────────────────────────────────────────────────────────
 void doMeasureCallback() {
   doMeasure(cfg, sens);
-  Serial.printf("[Sensor] dist=%.1f cm  level=%.1f%%  vol=%.1f L\n",
-                sens.distance_cm, sens.level_pct, sens.volume_liters);
+  Serial.printf("[Sensor] dist=%.1f cm  level=%.1f%%  vol=%.1f L  temp=%.1f°C\n",
+                sens.distance_cm, sens.level_pct, sens.volume_liters, sens.temp_c);
   tgCheckAlerts(cfg, sens);
 }
 
@@ -117,6 +117,7 @@ void setup() {
 
   // Sensor
   initSensor(cfg);
+  initTempSensor(cfg);
   storageInit();
 
   // WiFi

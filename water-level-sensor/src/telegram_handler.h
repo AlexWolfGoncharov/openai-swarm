@@ -39,6 +39,9 @@ static String _statusMsg(const Config &c, const SensorData &s) {
     m += F("🪣 Объём: "); m += String(s.volume_liters, 1); m += F(" л\n");
     m += F("⬜ Свободно: "); m += String(s.free_liters, 1); m += F(" л\n");
   }
+  if (!isnan(s.temp_c)) {
+    m += F("🌡 Температура: "); m += String(s.temp_c, 1); m += F(" °C\n");
+  }
   m += F("🕒 Замер: ");
   struct tm *ti = localtime((time_t*)&s.timestamp);
   char buf[20];

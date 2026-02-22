@@ -101,17 +101,19 @@ inline void mqttDiscovery(const Config &c) {
 
   // Build state topics from config base topic
   String base = c.mqtt_topic;
-  char tLevel[80], tVolume[80], tFree[80], tDist[80];
-  snprintf(tLevel,  sizeof(tLevel),  "%s/level",    base.c_str());
-  snprintf(tVolume, sizeof(tVolume), "%s/volume",   base.c_str());
-  snprintf(tFree,   sizeof(tFree),   "%s/free",     base.c_str());
-  snprintf(tDist,   sizeof(tDist),   "%s/distance", base.c_str());
+  char tLevel[80], tVolume[80], tFree[80], tDist[80], tTemp[80];
+  snprintf(tLevel,  sizeof(tLevel),  "%s/level",       base.c_str());
+  snprintf(tVolume, sizeof(tVolume), "%s/volume",      base.c_str());
+  snprintf(tFree,   sizeof(tFree),   "%s/free",        base.c_str());
+  snprintf(tDist,   sizeof(tDist),   "%s/distance",    base.c_str());
+  snprintf(tTemp,   sizeof(tTemp),   "%s/temperature", base.c_str());
 
   // Publish discovery for each entity
-  pubDisc("level",    (devName + " Уровень").c_str(),     tLevel,  "%",  "",         "mdi:waves");
-  pubDisc("volume",   (devName + " Объём").c_str(),       tVolume, "L",  "volume",   "mdi:barrel");
-  pubDisc("free",     (devName + " Свободно").c_str(),    tFree,   "L",  "volume",   "mdi:barrel-outline");
-  pubDisc("distance", (devName + " Расстояние").c_str(),  tDist,   "cm", "distance", "mdi:ruler");
+  pubDisc("level",    (devName + " Уровень").c_str(),      tLevel,  "%",  "",            "mdi:waves");
+  pubDisc("volume",   (devName + " Объём").c_str(),        tVolume, "L",  "volume",      "mdi:barrel");
+  pubDisc("free",     (devName + " Свободно").c_str(),     tFree,   "L",  "volume",      "mdi:barrel-outline");
+  pubDisc("distance", (devName + " Расстояние").c_str(),   tDist,   "cm", "distance",    "mdi:ruler");
+  pubDisc("temp",     (devName + " Температура").c_str(),  tTemp,   "°C", "temperature", "mdi:thermometer");
 
   _mqttDiscoverySent = true;
   Serial.println(F("[MQTT] HA discovery published"));
@@ -149,11 +151,23 @@ inline void mqttPublish(const Config &c, const SensorData &s) {
     _mqttClient.publish(topic, payload, true);
   }
 
+  if (!isnan(s.temp_c)) {
+    snprintf(topic, sizeof(topic), "%s/temperature", c.mqtt_topic);
+    snprintf(payload, sizeof(payload), "%.1f", s.temp_c);
+    _mqttClient.publish(topic, payload, true);
+  }
+
   // Full JSON message
-  char json[200];
-  snprintf(json, sizeof(json),
-    "{\"level\":%.1f,\"dist\":%.1f,\"vol\":%.1f,\"free\":%.1f,\"ts\":%lu}",
-    s.level_pct, s.distance_cm, s.volume_liters, s.free_liters, (unsigned long)s.timestamp);
+  char json[256];
+  if (!isnan(s.temp_c)) {
+    snprintf(json, sizeof(json),
+      "{\"level\":%.1f,\"dist\":%.1f,\"vol\":%.1f,\"free\":%.1f,\"temp\":%.1f,\"ts\":%lu}",
+      s.level_pct, s.distance_cm, s.volume_liters, s.free_liters, s.temp_c, (unsigned long)s.timestamp);
+  } else {
+    snprintf(json, sizeof(json),
+      "{\"level\":%.1f,\"dist\":%.1f,\"vol\":%.1f,\"free\":%.1f,\"ts\":%lu}",
+      s.level_pct, s.distance_cm, s.volume_liters, s.free_liters, (unsigned long)s.timestamp);
+  }
   snprintf(topic, sizeof(topic), "%s/json", c.mqtt_topic);
   _mqttClient.publish(topic, json, true);
 }

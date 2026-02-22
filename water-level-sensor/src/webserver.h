@@ -32,12 +32,14 @@ static void sendJson(ESP8266WebServer &srv, const String &json, int code = 200) 
 // /api/status
 // ------------------------------------------------------------------
 static String buildStatus(const Config &c, const SensorData &s) {
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<512> doc;
   doc["level"]    = serialized(String(s.level_pct, 1));
   doc["distance"] = serialized(String(s.distance_cm, 1));
   doc["volume"]   = serialized(String(s.volume_liters, 1));
   doc["free"]     = serialized(String(s.free_liters, 1));
   doc["total"]    = serialized(String(s.total_liters, 1));
+  if (!isnan(s.temp_c)) doc["temp"] = serialized(String(s.temp_c, 1));
+  else                  doc["temp"] = nullptr;
   doc["valid"]    = s.valid;
   doc["ts"]       = s.timestamp;
   doc["ip"]       = WiFi.localIP().toString();
@@ -174,6 +176,8 @@ inline void webSetup(ESP8266WebServer &srv,
     doc["tl"] = cfg.tg_alert_low;
     doc["th"] = cfg.tg_alert_high;
     doc["td"] = cfg.tg_daily;
+    doc["dp"] = cfg.ds18_pin;
+    doc["de"] = cfg.ds18_en;
     doc["dn"] = cfg.device_name;
     doc["op"] = "";  // never expose OTA password
     String out; serializeJson(doc, out);
@@ -211,7 +215,9 @@ inline void webSetup(ESP8266WebServer &srv,
     copyStr("tc", cfg.tg_chat,  sizeof(cfg.tg_chat));
     if (doc.containsKey("tl")) cfg.tg_alert_low  = doc["tl"];
     if (doc.containsKey("th")) cfg.tg_alert_high = doc["th"];
-    if (doc.containsKey("td")) cfg.tg_daily      = doc["td"];
+    if (doc.containsKey("td")) cfg.tg_daily  = doc["td"];
+    if (doc.containsKey("dp")) cfg.ds18_pin  = doc["dp"];
+    if (doc.containsKey("de")) cfg.ds18_en   = doc["de"];
     copyStr("dn", cfg.device_name, sizeof(cfg.device_name));
     copyStr("op", cfg.ota_pass,    sizeof(cfg.ota_pass));
 
