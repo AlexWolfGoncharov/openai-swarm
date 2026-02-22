@@ -62,6 +62,11 @@
       <div><span class="cval" id="vd">--</span><span class="cunit">см</span></div>
       <div class="ts" style="margin-top:8px">Свободно: <span id="vfree">--</span> л</div>
     </div>
+    <div class="card">
+      <div class="clabel">Температура DS18B20</div>
+      <div><span class="cval" id="vt">--</span><span class="cunit">°C</span></div>
+      <div class="ts" id="thint" style="margin-top:8px">&nbsp;</div>
+    </div>
   </div>
 
   <!-- Chart -->
@@ -133,6 +138,16 @@ function applyStatus(d){
   document.getElementById('vtotal').textContent=parseFloat(d.total).toFixed(1);
   document.getElementById('vfree').textContent=parseFloat(d.free).toFixed(1);
   document.getElementById('vd').textContent=parseFloat(d.distance).toFixed(1);
+
+  var temp=parseFloat(d.temp);
+  if(!isNaN(temp)){
+    document.getElementById('vt').textContent=temp.toFixed(1);
+    var th=temp<5?'🥶 Очень холодная':temp>35?'🔥 Горячая':'';
+    document.getElementById('thint').textContent=th||'\u00a0';
+  } else {
+    document.getElementById('vt').textContent='--';
+    document.getElementById('thint').textContent='Датчик не найден';
+  }
 
   dot('dw',d.wifi); dot('dm',d.mqtt); dot('dt',d.tg);
   document.getElementById('lw').textContent=d.wifi?'WiFi ✓':'WiFi ✗';

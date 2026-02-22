@@ -1,5 +1,7 @@
 #pragma once
 #include <Arduino.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include "config.h"
 
 struct SensorData {
@@ -8,9 +10,14 @@ struct SensorData {
   float    volume_liters;  // current volume, L  (0 if diameter unknown)
   float    free_liters;    // free space volume, L
   float    total_liters;   // total barrel volume, L
+  float    temp_c;         // DS18B20 temperature, °C  (NAN if unavailable)
   uint32_t timestamp;      // Unix time of last reading
   bool     valid;          // measurement OK
 };
+
+// DS18B20 driver state (allocated on first initTempSensor call)
+static OneWire*           _ds18_ow = nullptr;
+static DallasTemperature* _ds18_dt = nullptr;
 
 // ------------------------------------------------------------------
 // Single HC-SR04 pulse measurement, returns distance in cm or -1 on timeout
@@ -73,11 +80,41 @@ inline void computeLevel(const Config &c, float dist_cm, SensorData &s) {
 }
 
 // ------------------------------------------------------------------
+// DS18B20 initialisation (call once after config is loaded)
+// ------------------------------------------------------------------
+inline void initTempSensor(const Config &c) {
+  if (!c.ds18_en) return;
+  _ds18_ow = new OneWire(c.ds18_pin);
+  _ds18_dt = new DallasTemperature(_ds18_ow);
+  _ds18_dt->begin();
+  _ds18_dt->setResolution(10);           // 10-bit ≈ 187 ms conversion
+  _ds18_dt->setWaitForConversion(false); // async — we poll below
+  Serial.printf("[DS18B20] init on GPIO%u  devices: %u\n",
+                c.ds18_pin, _ds18_dt->getDeviceCount());
+}
+
+// ------------------------------------------------------------------
 // Full measurement cycle
 // ------------------------------------------------------------------
 inline void doMeasure(const Config &c, SensorData &s) {
-  float dist = measureDistance(c);
+  // Kick off DS18B20 conversion before HC-SR04 (runs concurrently)
+  if (_ds18_dt) _ds18_dt->requestTemperatures();
+
+  float dist = measureDistance(c);   // ~50–250 ms depending on avg_samples
   computeLevel(c, dist, s);
+
+  // Wait for DS18B20 conversion to finish (max 200 ms at 10-bit)
+  if (_ds18_dt) {
+    unsigned long tw = millis();
+    while (!_ds18_dt->isConversionComplete() && millis() - tw < 250UL) {
+      delay(5); yield();
+    }
+    float t = _ds18_dt->getTempCByIndex(0);
+    s.temp_c = (t == DEVICE_DISCONNECTED_C) ? NAN : t;
+  } else {
+    s.temp_c = NAN;
+  }
+
   s.timestamp = time(nullptr);
 }
 

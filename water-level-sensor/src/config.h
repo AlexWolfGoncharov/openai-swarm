@@ -36,6 +36,10 @@ struct Config {
   float    tg_alert_high;    // alert when level rises above, %
   bool     tg_daily;         // send daily summary at midnight
 
+  // DS18B20 temperature sensor
+  uint8_t  ds18_pin;         // data pin (default GPIO2 = D4)
+  bool     ds18_en;          // enable temperature sensor
+
   // System
   char     device_name[32];
   char     ota_pass[32];
@@ -61,6 +65,8 @@ inline void configDefaults(Config &c) {
   c.tg_alert_low   = 20.0f;
   c.tg_alert_high  = 95.0f;
   c.tg_daily       = false;
+  c.ds18_pin       = 2;     // D4 = GPIO2
+  c.ds18_en        = true;
   strlcpy(c.device_name, "watersensor", sizeof(c.device_name));
   strlcpy(c.ota_pass,    "ota1234",     sizeof(c.ota_pass));
 }
@@ -96,6 +102,8 @@ inline bool loadConfig(Config &c) {
   c.tg_alert_low   = doc["tl"]  | 20.0f;
   c.tg_alert_high  = doc["th"]  | 95.0f;
   c.tg_daily       = doc["td"]  | false;
+  c.ds18_pin       = doc["dp"]  | 2;
+  c.ds18_en        = doc["de"]  | true;
   strlcpy(c.device_name, doc["dn"] | "watersensor", sizeof(c.device_name));
   strlcpy(c.ota_pass,    doc["op"] | "ota1234",     sizeof(c.ota_pass));
   return true;
@@ -125,6 +133,8 @@ inline bool saveConfig(const Config &c) {
   doc["tl"] = c.tg_alert_low;
   doc["th"] = c.tg_alert_high;
   doc["td"] = c.tg_daily;
+  doc["dp"] = c.ds18_pin;
+  doc["de"] = c.ds18_en;
   doc["dn"] = c.device_name;
   doc["op"] = c.ota_pass;
 

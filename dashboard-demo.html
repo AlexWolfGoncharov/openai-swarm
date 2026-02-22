@@ -204,6 +204,12 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
       <div><span class="cval" id="v-dist">--</span><span class="cunit">см</span></div>
       <div class="ts" style="margin-top:8px">Свободно: <span id="v-free">--</span> л</div>
     </div>
+    <!-- Temperature DS18B20 -->
+    <div class="card">
+      <div class="clabel">Температура DS18B20</div>
+      <div><span class="cval" id="v-temp">--</span><span class="cunit">°C</span></div>
+      <div class="ts" id="v-thint" style="margin-top:8px">&nbsp;</div>
+    </div>
   </div>
 
   <!-- Chart -->
@@ -306,6 +312,21 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <input type="number" name="ms" min="10" max="3600" value="60">
   </div>
 
+  <!-- DS18B20 -->
+  <div class="sec">🌡️ Датчик температуры DS18B20</div>
+  <label class="toggle" style="margin-bottom:14px">
+    <input type="checkbox" name="de" id="tde" checked onchange="vis('ds18Box',this)">
+    <span class="tslider"></span>
+    <span>Включить DS18B20</span>
+  </label>
+  <div id="ds18Box">
+    <div class="fg" style="max-width:260px">
+      <label>Пин данных (GPIO номер)</label>
+      <input type="number" name="dp" min="0" max="16" value="2">
+      <p class="hint">D4 = GPIO2. Нужен подтягивающий резистор 4.7 кОм к 3.3V между DATA и VCC.</p>
+    </div>
+  </div>
+
   <!-- MQTT -->
   <div class="sec">📡 MQTT</div>
   <label class="toggle" style="margin-bottom:14px">
@@ -337,7 +358,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent)}
     <div class="fg" style="max-width:360px">
       <label>Базовый топик</label>
       <input type="text" name="mt" value="home/water" maxlength="63">
-      <p class="hint">Публикуются: <b>/level</b>, <b>/distance</b>, <b>/volume</b>, <b>/free</b>, <b>/json</b></p>
+      <p class="hint">Публикуются: <b>/level</b>, <b>/distance</b>, <b>/volume</b>, <b>/free</b>, <b>/temperature</b>, <b>/json</b></p>
     </div>
   </div>
 
@@ -520,6 +541,7 @@ var state = {
   level:   67.3,
   dist:    32.7,
   total:   200.0,
+  temp:    18.4,   // DS18B20, °C
 };
 // Derived
 function calcVol(lvl){ return +(lvl/100 * state.total).toFixed(1); }
@@ -595,6 +617,11 @@ function applyState(lvl){
   var hint = pct < 20 ? '⚠️ Мало воды!' : pct > 90 ? '🔵 Почти полная!' : '';
   document.getElementById('v-hint').textContent = hint || '\u00a0';
 
+  var tc = +state.temp.toFixed(1);
+  document.getElementById('v-temp').textContent = tc.toFixed(1);
+  var th = tc < 5 ? '🥶 Очень холодная' : tc > 35 ? '🔥 Горячая' : '';
+  document.getElementById('v-thint').textContent = th || '\u00a0';
+
   document.getElementById('upd-time').textContent =
     'Обновлено: ' + new Date().toLocaleTimeString('ru');
 }
@@ -611,11 +638,13 @@ function showChart(h, btn){
 }
 
 
-/* ─── Live simulation: level slowly drifts ─── */
+/* ─── Live simulation: level and temperature slowly drift ─── */
 function tick(){
-  // Slight downward drift (water usage) with small random variation
   var delta = (Math.random() - 0.6) * 0.4;
   state.level = Math.max(15, Math.min(99, state.level + delta));
+  // Temperature drifts ±0.1°C
+  state.temp += (Math.random() - 0.5) * 0.2;
+  state.temp = Math.max(5, Math.min(40, state.temp));
   applyState(state.level);
 }
 
