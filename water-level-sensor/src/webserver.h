@@ -35,6 +35,7 @@ static void sendJson(ESP8266WebServer &srv, const String &json, int code = 200) 
 static String buildWifiScan() {
   int found = WiFi.scanNetworks();
   if (found < 0) found = 0;
+  int scanned = found;
 
   if (found > 20) found = 20; // keep response small for ESP8266 RAM
 
@@ -57,6 +58,7 @@ static String buildWifiScan() {
 
   String out;
   serializeJson(doc, out);
+  Serial.printf("[WEB] GET /api/wifi-scan -> %d scanned, %u bytes\n", scanned, out.length());
   return out;
 }
 
@@ -185,12 +187,14 @@ inline void webSetup(ESP8266WebServer &srv,
 
   // API - measure now
   srv.on("/api/measure", HTTP_POST, [&]{
+    Serial.println(F("[WEB] POST /api/measure"));
     measureCallback();
     sendJson(srv, buildStatus(cfg, sens));
   });
 
   // API - get config (mask passwords)
   srv.on("/api/config", HTTP_GET, [&]{
+    Serial.println(F("[WEB] GET /api/config"));
     StaticJsonDocument<768> doc;
     doc["ws"] = cfg.wifi_ssid;
     doc["wp"] = strlen(cfg.wifi_password) ? "••••••••" : "";
@@ -228,9 +232,18 @@ inline void webSetup(ESP8266WebServer &srv,
 
   // API - save config
   srv.on("/api/config", HTTP_POST, [&]{
-    if (!srv.hasArg("plain")) { srv.send(400); return; }
+    Serial.println(F("[WEB] POST /api/config"));
+    if (!srv.hasArg("plain")) {
+      Serial.println(F("[WEB] POST /api/config -> 400 (no body)"));
+      srv.send(400);
+      return;
+    }
     StaticJsonDocument<768> doc;
-    if (deserializeJson(doc, srv.arg("plain"))) { srv.send(400, "text/plain", "Bad JSON"); return; }
+    if (deserializeJson(doc, srv.arg("plain"))) {
+      Serial.println(F("[WEB] POST /api/config -> 400 (bad JSON)"));
+      srv.send(400, "text/plain", "Bad JSON");
+      return;
+    }
 
     auto copyStr = [&](const char *key, char *dst, size_t len) {
       if (doc.containsKey(key) && doc[key].as<String>() != "••••••••")
@@ -267,6 +280,7 @@ inline void webSetup(ESP8266WebServer &srv,
     copyStr("op", cfg.ota_pass,    sizeof(cfg.ota_pass));
 
     bool ok = saveConfig(cfg);
+    Serial.printf("[WEB] POST /api/config -> %s (reboot=%u)\n", ok ? "ok" : "fail", ok ? 1 : 0);
     sendJson(srv, ok ? F("{\"ok\":true,\"reboot\":true}") : F("{\"ok\":false}"));
     if (ok) {
       delay(500);
@@ -279,12 +293,14 @@ inline void webSetup(ESP8266WebServer &srv,
 
   // API - clear history
   srv.on("/api/history", HTTP_DELETE, [&]{
+    Serial.println(F("[WEB] DELETE /api/history"));
     storageClear();
     sendJson(srv, F("{\"ok\":true}"));
   });
 
   // API - factory reset
   srv.on("/api/reset", HTTP_POST, [&]{
+    Serial.println(F("[WEB] POST /api/reset"));
     LittleFS.remove(CONFIG_FILE);
     storageClear();
     sendJson(srv, F("{\"ok\":true}"));
