@@ -58,7 +58,7 @@ static String buildWifiScan() {
 
   String out;
   serializeJson(doc, out);
-  Serial.printf("[WEB] GET /api/wifi-scan -> %d scanned, %u bytes\n", scanned, out.length());
+  dbgPrintf("[WEB] GET /api/wifi-scan -> %d scanned, %u bytes\n", scanned, out.length());
   return out;
 }
 
@@ -67,12 +67,13 @@ static String buildWifiScan() {
 // ------------------------------------------------------------------
 static String buildStatus(const Config &c, const SensorData &s) {
   StaticJsonDocument<512> doc;
-  doc["level"]    = serialized(String(s.level_pct, 1));
-  doc["distance"] = serialized(String(s.distance_cm, 1));
-  doc["volume"]   = serialized(String(s.volume_liters, 1));
-  doc["free"]     = serialized(String(s.free_liters, 1));
-  doc["total"]    = serialized(String(s.total_liters, 1));
-  if (!isnan(s.temp_c)) doc["temp"] = serialized(String(s.temp_c, 1));
+  auto r1 = [](float v) { return roundf(v * 10.0f) / 10.0f; };
+  doc["level"]    = r1(s.level_pct);
+  doc["distance"] = r1(s.distance_cm);
+  doc["volume"]   = r1(s.volume_liters);
+  doc["free"]     = r1(s.free_liters);
+  doc["total"]    = r1(s.total_liters);
+  if (!isnan(s.temp_c)) doc["temp"] = r1(s.temp_c);
   else                  doc["temp"] = nullptr;
   doc["valid"]    = s.valid;
   doc["ts"]       = s.timestamp;
@@ -81,6 +82,7 @@ static String buildStatus(const Config &c, const SensorData &s) {
   doc["heap"]     = ESP.getFreeHeap();
   doc["diameter"] = c.barrel_diam_cm;
   doc["records"]  = storageCount();
+  doc["records_max"] = MAX_REC;
   doc["wifi"]     = (WiFi.status() == WL_CONNECTED);
   doc["mqtt"]     = mqttConnected();
   doc["tg"]       = tgEnabled();
@@ -90,20 +92,21 @@ static String buildStatus(const Config &c, const SensorData &s) {
 }
 
 // ------------------------------------------------------------------
-// /api/history?h=N  (N hours, default 24, max 168)
+// /api/history?h=N  (N hours, default 24, max 168 for UI chart)
 // ------------------------------------------------------------------
 static String buildHistory(int hours) {
+  const int HISTORY_UI_MAX_HOURS = 168;
   if (hours < 1)   hours = 24;
-  if (hours > 168) hours = 168;
+  if (hours > HISTORY_UI_MAX_HOURS) hours = HISTORY_UI_MAX_HOURS;
 
-  HistRecord buf[MAX_REC];
-  int cnt = storageRead(buf, MAX_REC);
+  static HistRecord buf[168]; // keep RAM predictable for chart responses
+  int cnt = storageRead(buf, HISTORY_UI_MAX_HOURS);
 
   // Filter by time window
   uint32_t now = time(nullptr);
   uint32_t since = now - (uint32_t)hours * 3600UL;
 
-  DynamicJsonDocument doc(cnt * 64 + 96);
+  DynamicJsonDocument doc(cnt * 80 + 128);
   JsonArray labels = doc.createNestedArray("labels");
   JsonArray values = doc.createNestedArray("values");
   JsonArray vols   = doc.createNestedArray("volumes");
@@ -111,18 +114,21 @@ static String buildHistory(int hours) {
 
   // buf is newest-first; reverse to chronological
   for (int i = cnt - 1; i >= 0; i--) {
+    yield(); // keep /api/history responsive on ESP8266
     if (buf[i].ts < since || buf[i].ts == 0) continue;
-    struct tm *ti = localtime((time_t*)&buf[i].ts);
+    time_t ts = (time_t)buf[i].ts;
+    struct tm *ti = localtime(&ts);
+    if (!ti) continue;
     char lbl[10];
     if (hours <= 24)
       strftime(lbl, sizeof(lbl), "%H:%M", ti);
     else
       strftime(lbl, sizeof(lbl), "%d.%m", ti);
     labels.add(lbl);
-    values.add(serialized(String(buf[i].level, 1)));
-    vols.add(serialized(String(buf[i].volume, 1)));
+    values.add(roundf(buf[i].level * 10.0f) / 10.0f);
+    vols.add(roundf(buf[i].volume * 10.0f) / 10.0f);
     if (isnan(buf[i].temp_c)) temps.add(nullptr);
-    else                      temps.add(serialized(String(buf[i].temp_c, 1)));
+    else                      temps.add(roundf(buf[i].temp_c * 10.0f) / 10.0f);
   }
 
   String out; serializeJson(doc, out);
@@ -133,28 +139,61 @@ static String buildHistory(int hours) {
 // /api/export  — CSV download
 // ------------------------------------------------------------------
 static void handleExport(ESP8266WebServer &srv) {
-  HistRecord buf[MAX_REC];
-  int cnt = storageRead(buf, MAX_REC);
-
   srv.sendHeader(F("Content-Disposition"), F("attachment; filename=history.csv"));
   srv.setContentLength(CONTENT_LENGTH_UNKNOWN);
   srv.send(200, F("text/csv"), "");
 
   srv.sendContent(F("datetime,level_pct,volume_liters,temp_c\r\n"));
-  for (int i = cnt - 1; i >= 0; i--) {
-    if (buf[i].ts == 0) continue;
-    struct tm *ti = localtime((time_t*)&buf[i].ts);
+  File f = LittleFS.open(HIST_FILE, "r");
+  if (!f) return;
+
+  HistHeader hdr;
+  if (f.size() != (size_t)(sizeof(HistHeader) + MAX_REC * sizeof(HistRecord)) ||
+      f.read((uint8_t*)&hdr, sizeof(hdr)) != sizeof(hdr) ||
+      hdr.head >= MAX_REC || hdr.count > MAX_REC) {
+    f.close();
+    return;
+  }
+
+  HistRecord rec;
+  int start = ((int)hdr.head - (int)hdr.count + MAX_REC) % MAX_REC; // oldest
+  for (uint16_t i = 0; i < hdr.count; i++) {
+    int idx = (start + i) % MAX_REC;
+    f.seek(sizeof(HistHeader) + idx * sizeof(HistRecord));
+    if (f.read((uint8_t*)&rec, sizeof(rec)) != sizeof(rec)) break;
+    if (rec.ts == 0) continue;
+    time_t ts = (time_t)rec.ts;
+    struct tm *ti = localtime(&ts);
+    if (!ti) continue;
     char row[64];
     strftime(row, sizeof(row), "%Y-%m-%d %H:%M,", ti);
     srv.sendContent(row);
-    srv.sendContent(String(buf[i].level, 1));
+    srv.sendContent(String(rec.level, 1));
     srv.sendContent(",");
-    srv.sendContent(String(buf[i].volume, 1));
+    srv.sendContent(String(rec.volume, 1));
     srv.sendContent(",");
-    if (!isnan(buf[i].temp_c)) srv.sendContent(String(buf[i].temp_c, 1));
+    if (!isnan(rec.temp_c)) srv.sendContent(String(rec.temp_c, 1));
     srv.sendContent(F("\r\n"));
     yield();
   }
+  f.close();
+}
+
+// ------------------------------------------------------------------
+// /api/logs  — recent mirrored serial logs (ring buffer)
+// ------------------------------------------------------------------
+static String buildDebugLogs() {
+  DynamicJsonDocument doc(6144);
+  doc["uptime"] = millis() / 1000;
+  JsonArray lines = doc.createNestedArray("lines");
+  uint8_t cnt = dbgLogCount();
+  for (uint8_t i = 0; i < cnt; i++) {
+    lines.add(dbgLogLineAt(i));
+    yield();
+  }
+  String out;
+  serializeJson(doc, out);
+  return out;
 }
 
 // ------------------------------------------------------------------
@@ -185,17 +224,22 @@ inline void webSetup(ESP8266WebServer &srv,
     sendJson(srv, buildHistory(h));
   });
 
+  // API - debug logs
+  srv.on("/api/logs", HTTP_GET, [&]{
+    sendJson(srv, buildDebugLogs());
+  });
+
   // API - measure now
   srv.on("/api/measure", HTTP_POST, [&]{
-    Serial.println(F("[WEB] POST /api/measure"));
+    dbgPrintln(F("[WEB] POST /api/measure"));
     measureCallback();
     sendJson(srv, buildStatus(cfg, sens));
   });
 
   // API - get config (mask passwords)
   srv.on("/api/config", HTTP_GET, [&]{
-    Serial.println(F("[WEB] GET /api/config"));
-    StaticJsonDocument<768> doc;
+    dbgPrintln(F("[WEB] GET /api/config"));
+    StaticJsonDocument<1024> doc;
     doc["ws"] = cfg.wifi_ssid;
     doc["wp"] = strlen(cfg.wifi_password) ? "••••••••" : "";
     doc["tp"] = cfg.trig_pin;
@@ -212,6 +256,10 @@ inline void webSetup(ESP8266WebServer &srv,
     doc["mq"] = strlen(cfg.mqtt_pass) ? "••••••••" : "";
     doc["mt"] = cfg.mqtt_topic;
     doc["te"] = cfg.tg_en;
+    doc["tx"] = cfg.tg_cmd_en;
+    doc["tal"] = cfg.tg_alert_low_en;
+    doc["tah"] = cfg.tg_alert_high_en;
+    doc["tb"] = cfg.tg_boot_msg_en;
     doc["tt"] = strlen(cfg.tg_token) ? "••••••••" : "";
     doc["tc"] = cfg.tg_chat;
     doc["tl"] = cfg.tg_alert_low;
@@ -232,15 +280,15 @@ inline void webSetup(ESP8266WebServer &srv,
 
   // API - save config
   srv.on("/api/config", HTTP_POST, [&]{
-    Serial.println(F("[WEB] POST /api/config"));
+    dbgPrintln(F("[WEB] POST /api/config"));
     if (!srv.hasArg("plain")) {
-      Serial.println(F("[WEB] POST /api/config -> 400 (no body)"));
+      dbgPrintln(F("[WEB] POST /api/config -> 400 (no body)"));
       srv.send(400);
       return;
     }
-    StaticJsonDocument<768> doc;
+    StaticJsonDocument<1024> doc;
     if (deserializeJson(doc, srv.arg("plain"))) {
-      Serial.println(F("[WEB] POST /api/config -> 400 (bad JSON)"));
+      dbgPrintln(F("[WEB] POST /api/config -> 400 (bad JSON)"));
       srv.send(400, "text/plain", "Bad JSON");
       return;
     }
@@ -269,6 +317,15 @@ inline void webSetup(ESP8266WebServer &srv,
     copyStr("mq", cfg.mqtt_pass, sizeof(cfg.mqtt_pass));
     copyStr("mt", cfg.mqtt_topic, sizeof(cfg.mqtt_topic));
     if (doc.containsKey("te")) cfg.tg_en = doc["te"];
+    if (doc.containsKey("tx")) cfg.tg_cmd_en = doc["tx"];
+    if (doc.containsKey("ta")) { // legacy UI compatibility
+      bool v = doc["ta"];
+      cfg.tg_alert_low_en = v;
+      cfg.tg_alert_high_en = v;
+    }
+    if (doc.containsKey("tal")) cfg.tg_alert_low_en = doc["tal"];
+    if (doc.containsKey("tah")) cfg.tg_alert_high_en = doc["tah"];
+    if (doc.containsKey("tb")) cfg.tg_boot_msg_en = doc["tb"];
     copyStr("tt", cfg.tg_token, sizeof(cfg.tg_token));
     copyStr("tc", cfg.tg_chat,  sizeof(cfg.tg_chat));
     if (hasValue("tl")) cfg.tg_alert_low  = doc["tl"];
@@ -280,7 +337,7 @@ inline void webSetup(ESP8266WebServer &srv,
     copyStr("op", cfg.ota_pass,    sizeof(cfg.ota_pass));
 
     bool ok = saveConfig(cfg);
-    Serial.printf("[WEB] POST /api/config -> %s (reboot=%u)\n", ok ? "ok" : "fail", ok ? 1 : 0);
+    dbgPrintf("[WEB] POST /api/config -> %s (reboot=%u)\n", ok ? "ok" : "fail", ok ? 1 : 0);
     sendJson(srv, ok ? F("{\"ok\":true,\"reboot\":true}") : F("{\"ok\":false}"));
     if (ok) {
       delay(500);
@@ -293,14 +350,14 @@ inline void webSetup(ESP8266WebServer &srv,
 
   // API - clear history
   srv.on("/api/history", HTTP_DELETE, [&]{
-    Serial.println(F("[WEB] DELETE /api/history"));
+    dbgPrintln(F("[WEB] DELETE /api/history"));
     storageClear();
     sendJson(srv, F("{\"ok\":true}"));
   });
 
   // API - factory reset
   srv.on("/api/reset", HTTP_POST, [&]{
-    Serial.println(F("[WEB] POST /api/reset"));
+    dbgPrintln(F("[WEB] POST /api/reset"));
     LittleFS.remove(CONFIG_FILE);
     storageClear();
     sendJson(srv, F("{\"ok\":true}"));

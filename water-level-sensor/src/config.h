@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include "debug_log.h"
 
 #define CONFIG_FILE "/config.json"
 #define FW_VERSION  "1.0.0"
@@ -30,6 +31,10 @@ struct Config {
 
   // Telegram
   bool     tg_en;
+  bool     tg_cmd_en;       // poll bot commands (/status, /measure)
+  bool     tg_alert_low_en;   // low-level threshold alert
+  bool     tg_alert_high_en;  // high-level threshold alert
+  bool     tg_boot_msg_en;  // startup status message
   char     tg_token[128];
   char     tg_chat[32];
   float    tg_alert_low;     // alert when level falls below, %
@@ -48,23 +53,29 @@ struct Config {
 // ---------- defaults ----------
 inline void configDefaults(Config &c) {
   memset(&c, 0, sizeof(c));
-  strlcpy(c.wifi_ssid,    "",          sizeof(c.wifi_ssid));
-  strlcpy(c.wifi_password,"",          sizeof(c.wifi_password));
+  // Defaults below are prefilled for the current installation.
+  strlcpy(c.wifi_ssid,    "Katya_5G:)", sizeof(c.wifi_ssid));
+  strlcpy(c.wifi_password,"30101986",   sizeof(c.wifi_password));
   c.trig_pin       = 14;   // D5
   c.echo_pin       = 12;   // D6
   c.empty_dist_cm  = 110.0f;
-  c.full_dist_cm   = 5.0f;
+  c.full_dist_cm   = 25.0f;
   c.barrel_diam_cm = 51.0f;
-  c.avg_samples    = 5;
+  c.avg_samples    = 10;
   c.measure_sec    = 60;
-  c.mqtt_en        = false;
-  strlcpy(c.mqtt_host,  "mqtt.local",  sizeof(c.mqtt_host));
+  c.mqtt_en        = true;
+  strlcpy(c.mqtt_host,  "192.168.4.107", sizeof(c.mqtt_host));
   c.mqtt_port      = 1883;
   strlcpy(c.mqtt_topic, "watersensor", sizeof(c.mqtt_topic));
-  c.tg_en          = false;
+  c.tg_en          = true;
+  c.tg_cmd_en      = true;
+  c.tg_alert_low_en  = false;
+  c.tg_alert_high_en = false;
+  c.tg_boot_msg_en = true;
+  strlcpy(c.tg_chat, "125791364", sizeof(c.tg_chat)); // token is intentionally not embedded
   c.tg_alert_low   = 20.0f;
   c.tg_alert_high  = 95.0f;
-  c.tg_daily       = false;
+  c.tg_daily       = true;
   c.ds18_pin       = 2;     // D4 = GPIO2
   c.ds18_en        = true;
   strlcpy(c.device_name, "watersensor", sizeof(c.device_name));
@@ -72,16 +83,20 @@ inline void configDefaults(Config &c) {
 }
 
 inline void logConfigSummary(const char *tag, const Config &c) {
-  Serial.printf(
+  dbgPrintf(
     "[CFG] %s | wifi_ssid='%s' trig=%u echo=%u ds18_en=%u ds18_pin=%u "
-    "empty=%.1f full=%.1f diam=%.1f avg=%u sec=%u mqtt=%u tg=%u\n",
+    "empty=%.1f full=%.1f diam=%.1f avg=%u sec=%u mqtt=%u tg=%u tx=%u tal=%u tah=%u tb=%u\n",
     tag ? tag : "state",
     c.wifi_ssid,
     c.trig_pin, c.echo_pin,
     c.ds18_en ? 1 : 0, c.ds18_pin,
     c.empty_dist_cm, c.full_dist_cm, c.barrel_diam_cm,
     c.avg_samples, c.measure_sec,
-    c.mqtt_en ? 1 : 0, c.tg_en ? 1 : 0
+    c.mqtt_en ? 1 : 0, c.tg_en ? 1 : 0,
+    c.tg_cmd_en ? 1 : 0,
+    c.tg_alert_low_en ? 1 : 0,
+    c.tg_alert_high_en ? 1 : 0,
+    c.tg_boot_msg_en ? 1 : 0
   );
 }
 
@@ -90,7 +105,7 @@ inline bool sanitizeConfig(Config &c) {
 
   auto fixU8 = [&](uint8_t &v, uint8_t def, const char *name) {
     if (v == 0 || v > 16) {
-      Serial.printf("[CFG] Sanitize %s: %u -> %u\n", name, v, def);
+      dbgPrintf("[CFG] Sanitize %s: %u -> %u\n", name, v, def);
       v = def;
       changed = true;
     }
@@ -102,20 +117,20 @@ inline bool sanitizeConfig(Config &c) {
 
   if (c.avg_samples < 1 || c.avg_samples > 10) {
     uint8_t old = c.avg_samples;
-    c.avg_samples = 5;
-    Serial.printf("[CFG] Sanitize avg_samples: %u -> %u\n", old, c.avg_samples);
+    c.avg_samples = 10;
+    dbgPrintf("[CFG] Sanitize avg_samples: %u -> %u\n", old, c.avg_samples);
     changed = true;
   }
 
   if (c.measure_sec < 10 || c.measure_sec > 3600) {
     uint16_t old = c.measure_sec;
     c.measure_sec = 60;
-    Serial.printf("[CFG] Sanitize measure_sec: %u -> %u\n", old, c.measure_sec);
+    dbgPrintf("[CFG] Sanitize measure_sec: %u -> %u\n", old, c.measure_sec);
     changed = true;
   }
 
   if (c.mqtt_port == 0) {
-    Serial.printf("[CFG] Sanitize mqtt_port: %u -> %u\n", c.mqtt_port, 1883);
+    dbgPrintf("[CFG] Sanitize mqtt_port: %u -> %u\n", c.mqtt_port, 1883);
     c.mqtt_port = 1883;
     changed = true;
   }
@@ -123,39 +138,39 @@ inline bool sanitizeConfig(Config &c) {
   if (c.barrel_diam_cm < 0 || c.barrel_diam_cm > 10000) {
     float old = c.barrel_diam_cm;
     c.barrel_diam_cm = 51.0f;
-    Serial.printf("[CFG] Sanitize barrel_diam_cm: %.2f -> %.2f\n", old, c.barrel_diam_cm);
+    dbgPrintf("[CFG] Sanitize barrel_diam_cm: %.2f -> %.2f\n", old, c.barrel_diam_cm);
     changed = true;
   }
 
   if (c.empty_dist_cm <= 0 || c.full_dist_cm <= 0 || c.full_dist_cm >= c.empty_dist_cm) {
-    Serial.printf("[CFG] Sanitize distances: empty=%.2f full=%.2f -> empty=110.00 full=5.00\n",
+    dbgPrintf("[CFG] Sanitize distances: empty=%.2f full=%.2f -> empty=110.00 full=25.00\n",
                   c.empty_dist_cm, c.full_dist_cm);
     c.empty_dist_cm = 110.0f;
-    c.full_dist_cm  = 5.0f;
+    c.full_dist_cm  = 25.0f;
     changed = true;
   }
 
   if (c.tg_alert_low <= 0 || c.tg_alert_low >= 100) {
     float old = c.tg_alert_low;
     c.tg_alert_low = 20.0f;
-    Serial.printf("[CFG] Sanitize tg_alert_low: %.2f -> %.2f\n", old, c.tg_alert_low);
+    dbgPrintf("[CFG] Sanitize tg_alert_low: %.2f -> %.2f\n", old, c.tg_alert_low);
     changed = true;
   }
   if (c.tg_alert_high <= 0 || c.tg_alert_high > 100 || c.tg_alert_high <= c.tg_alert_low) {
     float old = c.tg_alert_high;
     c.tg_alert_high = 95.0f;
-    Serial.printf("[CFG] Sanitize tg_alert_high: %.2f -> %.2f\n", old, c.tg_alert_high);
+    dbgPrintf("[CFG] Sanitize tg_alert_high: %.2f -> %.2f\n", old, c.tg_alert_high);
     changed = true;
   }
 
   if (!strlen(c.device_name)) {
     strlcpy(c.device_name, "watersensor", sizeof(c.device_name));
-    Serial.println(F("[CFG] Sanitize device_name: empty -> watersensor"));
+    dbgPrintln(F("[CFG] Sanitize device_name: empty -> watersensor"));
     changed = true;
   }
   if (!strlen(c.mqtt_topic)) {
     strlcpy(c.mqtt_topic, "watersensor", sizeof(c.mqtt_topic));
-    Serial.println(F("[CFG] Sanitize mqtt_topic: empty -> watersensor"));
+    dbgPrintln(F("[CFG] Sanitize mqtt_topic: empty -> watersensor"));
     changed = true;
   }
 
@@ -168,15 +183,15 @@ inline bool loadConfig(Config &c) {
   configDefaults(c);
   File f = LittleFS.open(CONFIG_FILE, "r");
   if (!f) {
-    Serial.println(F("[CFG] /config.json not found, using defaults"));
+    dbgPrintln(F("[CFG] /config.json not found, using defaults"));
     logConfigSummary("defaults", c);
     return false;
   }
 
-  StaticJsonDocument<1024> doc;
+  StaticJsonDocument<1536> doc;
   if (deserializeJson(doc, f)) {
     f.close();
-    Serial.println(F("[CFG] Bad config.json, using defaults"));
+    dbgPrintln(F("[CFG] Bad config.json, using defaults"));
     logConfigSummary("defaults", c);
     return false;
   }
@@ -187,22 +202,27 @@ inline bool loadConfig(Config &c) {
   c.trig_pin       = doc["tp"]  | 14;
   c.echo_pin       = doc["ep"]  | 12;
   c.empty_dist_cm  = doc["ed"]  | 110.0f;
-  c.full_dist_cm   = doc["fd"]  | 5.0f;
+  c.full_dist_cm   = doc["fd"]  | 25.0f;
   c.barrel_diam_cm = doc["bd"]  | 51.0f;
-  c.avg_samples    = doc["as"]  | 5;
+  c.avg_samples    = doc["as"]  | 10;
   c.measure_sec    = doc["ms"]  | 60;
-  c.mqtt_en        = doc["me"]  | false;
-  strlcpy(c.mqtt_host,  doc["mh"]  | "mqtt.local", sizeof(c.mqtt_host));
+  c.mqtt_en        = doc["me"]  | true;
+  strlcpy(c.mqtt_host,  doc["mh"]  | "192.168.4.107", sizeof(c.mqtt_host));
   c.mqtt_port      = doc["mp"]  | 1883;
   strlcpy(c.mqtt_user,  doc["mu"]  | "",           sizeof(c.mqtt_user));
   strlcpy(c.mqtt_pass,  doc["mq"]  | "",           sizeof(c.mqtt_pass));
   strlcpy(c.mqtt_topic, doc["mt"]  | "watersensor",sizeof(c.mqtt_topic));
-  c.tg_en          = doc["te"]  | false;
+  c.tg_en          = doc["te"]  | true;
+  c.tg_cmd_en      = doc["tx"]  | true;
+  bool legacy_ta = doc["ta"] | false;
+  c.tg_alert_low_en  = doc.containsKey("tal") ? (bool)doc["tal"] : legacy_ta;
+  c.tg_alert_high_en = doc.containsKey("tah") ? (bool)doc["tah"] : legacy_ta;
+  c.tg_boot_msg_en = doc["tb"]  | true;
   strlcpy(c.tg_token,   doc["tt"]  | "",           sizeof(c.tg_token));
   strlcpy(c.tg_chat,    doc["tc"]  | "",           sizeof(c.tg_chat));
   c.tg_alert_low   = doc["tl"]  | 20.0f;
   c.tg_alert_high  = doc["th"]  | 95.0f;
-  c.tg_daily       = doc["td"]  | false;
+  c.tg_daily       = doc["td"]  | true;
   c.ds18_pin       = doc["dp"]  | 2;
   c.ds18_en        = doc["de"]  | true;
   strlcpy(c.device_name, doc["dn"] | "watersensor", sizeof(c.device_name));
@@ -215,7 +235,7 @@ inline bool loadConfig(Config &c) {
 // ---------- save ----------
 inline bool saveConfig(Config &c) {
   sanitizeConfig(c);
-  StaticJsonDocument<1024> doc;
+  StaticJsonDocument<1536> doc;
   doc["ws"] = c.wifi_ssid;
   doc["wp"] = c.wifi_password;
   doc["tp"] = c.trig_pin;
@@ -232,6 +252,10 @@ inline bool saveConfig(Config &c) {
   doc["mq"] = c.mqtt_pass;
   doc["mt"] = c.mqtt_topic;
   doc["te"] = c.tg_en;
+  doc["tx"] = c.tg_cmd_en;
+  doc["tal"] = c.tg_alert_low_en;
+  doc["tah"] = c.tg_alert_high_en;
+  doc["tb"] = c.tg_boot_msg_en;
   doc["tt"] = c.tg_token;
   doc["tc"] = c.tg_chat;
   doc["tl"] = c.tg_alert_low;
@@ -244,7 +268,7 @@ inline bool saveConfig(Config &c) {
 
   File f = LittleFS.open(CONFIG_FILE, "w");
   if (!f) {
-    Serial.println(F("[CFG] Failed to open /config.json for write"));
+    dbgPrintln(F("[CFG] Failed to open /config.json for write"));
     return false;
   }
   serializeJson(doc, f);

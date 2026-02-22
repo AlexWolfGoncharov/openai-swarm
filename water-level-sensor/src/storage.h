@@ -9,7 +9,7 @@
 //   Record: uint32 ts + float level_pct + float volume_liters + float temp_c
 
 #define HIST_FILE   "/hist.bin"
-#define MAX_REC     168   // 7 days × 24 h
+#define MAX_REC     2160  // 90 days × 24 h (hourly snapshots)
 
 struct HistRecord {
   uint32_t ts;
@@ -90,6 +90,7 @@ inline int storageRead(HistRecord *out, int n) {
 
   int cnt = min((int)hdr.count, n);
   for (int i = 0; i < cnt; i++) {
+    yield(); // avoid WDT on slow LittleFS seeks
     // Newest is (head-1), going backwards
     int idx = ((int)hdr.head - 1 - i + MAX_REC) % MAX_REC;
     f.seek(sizeof(hdr) + idx * sizeof(HistRecord));

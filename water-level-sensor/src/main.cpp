@@ -27,6 +27,7 @@ ESP8266WebServer    webServer(80);
 ESP8266HTTPUpdateServer updater;
 
 bool apMode = false;
+bool bootPhase = true;
 
 // Timers
 unsigned long tMeasure    = 0;
@@ -62,25 +63,26 @@ static bool _parseBool(const String &raw, bool &out) {
 }
 
 static void serialHelp() {
-  Serial.println(F("[SER] Commands:"));
-  Serial.println(F("  help"));
-  Serial.println(F("  cfg show"));
-  Serial.println(F("  cfg defaults"));
-  Serial.println(F("  cfg save"));
-  Serial.println(F("  cfg reload"));
-  Serial.println(F("  cfg set <key> <value>"));
-  Serial.println(F("  measure"));
-  Serial.println(F("  wifi scan"));
-  Serial.println(F("  reboot"));
-  Serial.println(F("[SER] Examples:"));
-  Serial.println(F("  cfg set tp 14"));
-  Serial.println(F("  cfg set ep 12"));
-  Serial.println(F("  cfg set dp 2"));
-  Serial.println(F("  cfg set de true"));
-  Serial.println(F("  cfg set ws MyWiFi"));
-  Serial.println(F("  cfg set wp mypass"));
-  Serial.println(F("  cfg set ms 60"));
-  Serial.println(F("  cfg save"));
+  dbgPrintln(F("[SER] Commands:"));
+  dbgPrintln(F("  help"));
+  dbgPrintln(F("  cfg show"));
+  dbgPrintln(F("  cfg defaults"));
+  dbgPrintln(F("  cfg save"));
+  dbgPrintln(F("  cfg reload"));
+  dbgPrintln(F("  cfg raw"));
+  dbgPrintln(F("  cfg set <key> <value>"));
+  dbgPrintln(F("  measure"));
+  dbgPrintln(F("  wifi scan"));
+  dbgPrintln(F("  reboot"));
+  dbgPrintln(F("[SER] Examples:"));
+  dbgPrintln(F("  cfg set tp 14"));
+  dbgPrintln(F("  cfg set ep 12"));
+  dbgPrintln(F("  cfg set dp 2"));
+  dbgPrintln(F("  cfg set de true"));
+  dbgPrintln(F("  cfg set ws MyWiFi"));
+  dbgPrintln(F("  cfg set wp mypass"));
+  dbgPrintln(F("  cfg set ms 60"));
+  dbgPrintln(F("  cfg save"));
 }
 
 static bool serialSetConfig(const String &keyRaw, String value) {
@@ -103,6 +105,11 @@ static bool serialSetConfig(const String &keyRaw, String value) {
   // Booleans
   if (key == "me") { if (!_parseBool(value, bv)) return false; cfg.mqtt_en = bv; return true; }
   if (key == "te") { if (!_parseBool(value, bv)) return false; cfg.tg_en = bv; return true; }
+  if (key == "tx") { if (!_parseBool(value, bv)) return false; cfg.tg_cmd_en = bv; return true; }
+  if (key == "ta")  { if (!_parseBool(value, bv)) return false; cfg.tg_alert_low_en = bv; cfg.tg_alert_high_en = bv; return true; } // legacy alias
+  if (key == "tal") { if (!_parseBool(value, bv)) return false; cfg.tg_alert_low_en = bv; return true; }
+  if (key == "tah") { if (!_parseBool(value, bv)) return false; cfg.tg_alert_high_en = bv; return true; }
+  if (key == "tb") { if (!_parseBool(value, bv)) return false; cfg.tg_boot_msg_en = bv; return true; }
   if (key == "td") { if (!_parseBool(value, bv)) return false; cfg.tg_daily = bv; return true; }
   if (key == "de") { if (!_parseBool(value, bv)) return false; cfg.ds18_en = bv; return true; }
 
@@ -127,24 +134,36 @@ static bool serialSetConfig(const String &keyRaw, String value) {
 static void serialHandleCommand(String line) {
   line.trim();
   if (!line.length()) return;
-  Serial.printf("[SER] > %s\n", line.c_str());
+  dbgPrintf("[SER] > %s\n", line.c_str());
 
   if (line == "help") { serialHelp(); return; }
   if (line == "cfg show") { logConfigSummary("serial", cfg); return; }
   if (line == "cfg defaults") {
     configDefaults(cfg);
-    Serial.println(F("[SER] Defaults loaded into RAM (use 'cfg save' to persist)"));
+    dbgPrintln(F("[SER] Defaults loaded into RAM (use 'cfg save' to persist)"));
     logConfigSummary("serial", cfg);
     return;
   }
   if (line == "cfg save") {
     bool ok = saveConfig(cfg);
-    Serial.printf("[SER] cfg save -> %s\n", ok ? "ok" : "fail");
+    dbgPrintf("[SER] cfg save -> %s\n", ok ? "ok" : "fail");
     return;
   }
   if (line == "cfg reload") {
     bool ok = loadConfig(cfg);
-    Serial.printf("[SER] cfg reload -> %s\n", ok ? "ok" : "defaults");
+    dbgPrintf("[SER] cfg reload -> %s\n", ok ? "ok" : "defaults");
+    return;
+  }
+  if (line == "cfg raw") {
+    File f = LittleFS.open(CONFIG_FILE, "r");
+    if (!f) {
+      dbgPrintln(F("[SER] cfg raw -> no /config.json"));
+      return;
+    }
+    String raw = f.readString();
+    f.close();
+    dbgPrint(F("[SER] cfg raw: "));
+    dbgPrintln(raw);
     return;
   }
   if (line == "measure") {
@@ -153,11 +172,11 @@ static void serialHandleCommand(String line) {
   }
   if (line == "wifi scan") {
     String json = buildWifiScan();
-    Serial.printf("[SER] wifi scan result: %s\n", json.c_str());
+    dbgPrintf("[SER] wifi scan result: %s\n", json.c_str());
     return;
   }
   if (line == "reboot") {
-    Serial.println(F("[SER] Rebooting..."));
+    dbgPrintln(F("[SER] Rebooting..."));
     delay(100);
     ESP.restart();
     return;
@@ -168,25 +187,25 @@ static void serialHandleCommand(String line) {
     rest.trim();
     int sp = rest.indexOf(' ');
     if (sp <= 0) {
-      Serial.println(F("[SER] Usage: cfg set <key> <value>"));
+      dbgPrintln(F("[SER] Usage: cfg set <key> <value>"));
       return;
     }
     String key = rest.substring(0, sp);
     String val = rest.substring(sp + 1);
     val.trim();
     if (!val.length()) {
-      Serial.println(F("[SER] Empty value"));
+      dbgPrintln(F("[SER] Empty value"));
       return;
     }
     if (!serialSetConfig(key, val)) {
-      Serial.printf("[SER] Unknown key or invalid value: %s\n", key.c_str());
+      dbgPrintf("[SER] Unknown key or invalid value: %s\n", key.c_str());
       return;
     }
-    Serial.printf("[SER] cfg set %s ok\n", key.c_str());
+    dbgPrintf("[SER] cfg set %s ok\n", key.c_str());
     return;
   }
 
-  Serial.println(F("[SER] Unknown command. Type 'help'"));
+  dbgPrintln(F("[SER] Unknown command. Type 'help'"));
 }
 
 static void serialPoll() {
@@ -205,17 +224,17 @@ static void serialPoll() {
 // ── WiFi helpers ─────────────────────────────────────────────────────────────
 bool connectWiFi() {
   if (!strlen(cfg.wifi_ssid)) return false;
-  Serial.printf("[WiFi] Connecting to %s", cfg.wifi_ssid);
+  dbgPrintf("[WiFi] Connecting to %s", cfg.wifi_ssid);
   WiFi.mode(WIFI_STA);
   WiFi.begin(cfg.wifi_ssid, cfg.wifi_password);
   for (int i = 0; i < 40; i++) {
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf("\n[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
+      dbgPrintf("\n[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
       return true;
     }
     delay(500); Serial.print('.'); yield();
   }
-  Serial.println(F("\n[WiFi] Failed"));
+  dbgPrintln(F("\n[WiFi] Failed"));
   return false;
 }
 
@@ -224,30 +243,33 @@ void startAP() {
   String ssid = String(F("WaterSensor-")) + String(ESP.getChipId(), HEX);
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid.c_str(), "watersensor");
-  Serial.printf("[AP] SSID: %s  IP: %s\n", ssid.c_str(),
+  dbgPrintf("[AP] SSID: %s  IP: %s\n", ssid.c_str(),
                 WiFi.softAPIP().toString().c_str());
 }
 
 // ── NTP ──────────────────────────────────────────────────────────────────────
 void setupNTP() {
+  // Kyiv timezone (EET/EEST with DST)
+  setenv("TZ", "EET-2EEST,M3.5.0/3,M10.5.0/4", 1);
+  tzset();
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   // Wait for sync (max 5s)
   time_t t = 0;
   for (int i = 0; i < 10 && t < 1000000; i++) { delay(500); t = time(nullptr); }
-  Serial.printf("[NTP] Time: %lu\n", (unsigned long)t);
+  dbgPrintf("[NTP] Time: %lu (Kyiv TZ)\n", (unsigned long)t);
 }
 
 // ── OTA ──────────────────────────────────────────────────────────────────────
 void setupArduinoOTA() {
   ArduinoOTA.setHostname(cfg.device_name);
   if (strlen(cfg.ota_pass)) ArduinoOTA.setPassword(cfg.ota_pass);
-  ArduinoOTA.onStart([]{ Serial.println(F("[OTA] Start")); });
-  ArduinoOTA.onEnd([]{ Serial.println(F("\n[OTA] End")); });
+  ArduinoOTA.onStart([]{ dbgPrintln(F("[OTA] Start")); });
+  ArduinoOTA.onEnd([]{ dbgPrintln(F("\n[OTA] End")); });
   ArduinoOTA.onProgress([](unsigned int p, unsigned int t){
-    Serial.printf("[OTA] %u%%\r", p * 100 / t);
+    dbgPrintf("[OTA] %u%%\r", p * 100 / t);
   });
   ArduinoOTA.onError([](ota_error_t e){
-    Serial.printf("[OTA] Error %u\n", e);
+    dbgPrintf("[OTA] Error %u\n", e);
   });
   ArduinoOTA.begin();
 }
@@ -255,28 +277,28 @@ void setupArduinoOTA() {
 // ── Measure callback ──────────────────────────────────────────────────────────
 void doMeasureCallback() {
   doMeasure(cfg, sens);
-  Serial.printf("[Sensor] dist=%.1f cm  level=%.1f%%  vol=%.1f L  temp=%.1f°C\n",
+  dbgPrintf("[Sensor] dist=%.1f cm  level=%.1f%%  vol=%.1f L  temp=%.1f°C\n",
                 sens.distance_cm, sens.level_pct, sens.volume_liters, sens.temp_c);
-  tgCheckAlerts(cfg, sens);
+  if (!bootPhase) tgCheckAlerts(cfg, sens);
 }
 
 // ── setup ────────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println(F("\n\n===== Water Level Sensor v1.0.0 ====="));
-  Serial.println(F("[SER] Console ready. Type 'help'"));
+  dbgPrintln(F("\n\n===== Water Level Sensor v1.0.0 ====="));
+  dbgPrintln(F("[SER] Console ready. Type 'help'"));
 
   // LittleFS
   if (!LittleFS.begin()) {
-    Serial.println(F("[FS] Format..."));
+    dbgPrintln(F("[FS] Format..."));
     LittleFS.format();
     LittleFS.begin();
   }
 
   // Config
   if (!loadConfig(cfg)) {
-    Serial.println(F("[CFG] Using defaults"));
+    dbgPrintln(F("[CFG] Using defaults"));
     saveConfig(cfg);
   }
 
@@ -292,19 +314,20 @@ void setup() {
     setupNTP();
     setupArduinoOTA();
     mqttSetup(cfg);
+    tgSetMeasureCallback(doMeasureCallback);
     tgSetup(cfg);
   }
 
   // mDNS
   if (MDNS.begin(cfg.device_name)) {
     MDNS.addService("http", "tcp", 80);
-    Serial.printf("[mDNS] http://%s.local\n", cfg.device_name);
+    dbgPrintf("[mDNS] http://%s.local\n", cfg.device_name);
   }
 
   // Web server
   webSetup(webServer, updater, cfg, sens, doMeasureCallback);
   webServer.begin();
-  Serial.println(F("[HTTP] Server started"));
+  dbgPrintln(F("[HTTP] Server started"));
 
   // First measurement
   doMeasureCallback();
@@ -314,7 +337,9 @@ void setup() {
   if (!apMode) {
     storageWrite(sens);
     tHourly = millis();
+    tgBootMessage(cfg, sens);
   }
+  bootPhase = false;
 }
 
 // ── loop ─────────────────────────────────────────────────────────────────────
@@ -366,7 +391,7 @@ void loop() {
 
     // WiFi watchdog
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.println(F("[WiFi] Reconnecting..."));
+      dbgPrintln(F("[WiFi] Reconnecting..."));
       WiFi.reconnect();
       delay(5000);
     }

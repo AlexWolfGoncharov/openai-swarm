@@ -40,11 +40,11 @@ static bool _mqttConnect(const Config &c) {
                           avail.c_str(), 0, true, "offline");
 
   if (ok) {
-    Serial.println(F("[MQTT] connected"));
+    dbgPrintln(F("[MQTT] connected"));
     _mqttClient.publish(avail.c_str(), "online", true);
     _mqttDiscoverySent = false;   // re-send discovery after reconnect
   } else {
-    Serial.printf("[MQTT] failed rc=%d\n", _mqttClient.state());
+    dbgPrintf("[MQTT] failed rc=%d\n", _mqttClient.state());
   }
   return ok;
 }
@@ -115,7 +115,7 @@ inline void mqttDiscovery(const Config &c) {
   pubDisc("temp",     (devName + " Температура").c_str(),  tTemp,   "°C", "temperature", "mdi:thermometer");
 
   _mqttDiscoverySent = true;
-  Serial.println(F("[MQTT] HA discovery published"));
+  dbgPrintln(F("[MQTT] HA discovery published"));
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────

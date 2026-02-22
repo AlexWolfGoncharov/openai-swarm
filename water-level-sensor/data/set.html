@@ -62,7 +62,7 @@
       </div>
       <div class="fg">
         <label>Расстояние до воды при полной бочке (см)</label>
-        <input type="number" name="fd" step="0.1" min="1" max="500" placeholder="5">
+        <input type="number" name="fd" step="0.1" min="1" max="500" placeholder="25">
         <p class="hint">Минимальное расстояние (бочка полная)</p>
       </div>
     </div>
@@ -74,7 +74,7 @@
       </div>
       <div class="fg">
         <label>Число замеров для усреднения (1–10)</label>
-        <input type="number" name="as" min="1" max="10" placeholder="5">
+        <input type="number" name="as" min="1" max="10" placeholder="10">
       </div>
     </div>
     <div class="fg" style="max-width:260px">
@@ -106,7 +106,7 @@
     </label>
     <div id="mqttBox">
       <div class="row2">
-        <div class="fg"><label>Сервер (хост или IP)</label><input type="text" name="mh" placeholder="192.168.1.100" maxlength="63"></div>
+        <div class="fg"><label>Сервер (хост или IP)</label><input type="text" name="mh" placeholder="192.168.4.107" maxlength="63"></div>
         <div class="fg"><label>Порт</label><input type="number" name="mp" min="1" max="65535" placeholder="1883"></div>
       </div>
       <div class="row2">
@@ -154,11 +154,32 @@
         <span class="tslider"></span>
         <span>Ежедневный отчёт в полночь</span>
       </label>
+      <label class="toggle" style="margin-top:10px">
+        <input type="checkbox" name="tx">
+        <span class="tslider"></span>
+        <span>Команды бота (/status, /measure)</span>
+      </label>
+      <label class="toggle" style="margin-top:10px">
+        <input type="checkbox" name="tal">
+        <span class="tslider"></span>
+        <span>Алерт: минимум (мало воды)</span>
+      </label>
+      <label class="toggle" style="margin-top:10px">
+        <input type="checkbox" name="tah">
+        <span class="tslider"></span>
+        <span>Алерт: максимум (много воды)</span>
+      </label>
+      <label class="toggle" style="margin-top:10px">
+        <input type="checkbox" name="tb">
+        <span class="tslider"></span>
+        <span>Стартовое сообщение после загрузки</span>
+      </label>
       <div class="card" style="margin-top:16px;background:var(--card2);border-style:dashed">
         <div style="font-size:.85rem;color:var(--muted);line-height:1.7">
           <b style="color:var(--txt)">Команды бота:</b><br>
           /level — текущий уровень<br>
           /status — полный статус с объёмом<br>
+          /measure — новый замер сейчас<br>
           /help — список команд + ссылка на веб-интерфейс
         </div>
       </div>

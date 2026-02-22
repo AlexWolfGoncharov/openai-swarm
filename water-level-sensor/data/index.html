@@ -11,6 +11,7 @@
 .gring::before{content:'';position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--card2) 0)}
 .gring::after{content:'';position:absolute;width:100px;height:100px;border-radius:50%;background:var(--card)}
 .gtext{position:relative;z-index:1;text-align:center;line-height:1.2}
+.dbgpre{margin:10px 0 0;background:#0a1220;border:1px solid #22344f;border-radius:12px;padding:10px;min-height:180px;max-height:320px;overflow:auto;color:#b9d4ff;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
 </style>
 </head>
 <body>
@@ -106,18 +107,27 @@
     <div class="card">
       <div class="clabel">Действия</div>
       <button class="btn btn-p" onclick="measure()">⚡ Замер сейчас</button>
+      <button class="btn btn-s" onclick="toggleDebug()">🐞 Режим отладки</button>
       <a href="/api/export"><button class="btn btn-s">📥 Экспорт CSV</button></a>
       <a href="/update"><button class="btn btn-s">🔄 Обновить прошивку</button></a>
       <button class="btn btn-s" onclick="if(confirm('Очистить историю?'))fetch('/api/history',{method:'DELETE'}).then(()=>{showToast('История очищена','ok');loadH(24)})">🗑 Очистить историю</button>
       <button class="btn btn-d" style="margin-top:14px" onclick="if(confirm('Сбросить все настройки?'))fetch('/api/reset',{method:'POST'})">Сброс настроек</button>
     </div>
   </div>
+
+  <div class="card" id="dbgCard" style="margin-top:18px;display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="clabel" style="margin:0">Отладка (логи устройства)</div>
+      <div class="ts" id="dbgState">Выкл.</div>
+    </div>
+    <pre class="dbgpre" id="dbgLog">Нажмите "Режим отладки".</pre>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
 <script src="/c.js"></script>
 <script>
-var chart=null,tempChart=null,curH=24;
+var chart=null,tempChart=null,curH=24,dbgOn=false,dbgTimer=null;
 
 function showToast(m,t){
   var el=document.getElementById('toast');
@@ -164,19 +174,47 @@ function applyStatus(d){
   document.getElementById('lt').textContent=d.tg?'Telegram ✓':'Telegram ✗';
 
   var t=new Date(d.ts*1000);
-  document.getElementById('upd').textContent='Обновлено: '+t.toLocaleTimeString('ru');
+  document.getElementById('upd').textContent='Обновлено (Киев): '+t.toLocaleTimeString('uk-UA',{timeZone:'Europe/Kyiv'});
 
   document.getElementById('dip').textContent=d.ip;
   document.getElementById('drssi').textContent=d.rssi+' dBm';
   document.getElementById('dheap').textContent=(d.heap/1024).toFixed(0)+' KB';
   document.getElementById('ddiam').textContent=d.diameter>0?d.diameter+' см':'Не задан';
-  document.getElementById('drec').textContent=d.records+' / 168';
+  document.getElementById('drec').textContent=d.records+' / '+(d.records_max||168);
   document.getElementById('dver').textContent=d.version||'—';
 }
 
 function fetchStatus(){
   fetch('/api/status').then(function(r){return r.json();}).then(applyStatus)
     .catch(function(){dot('dw',false);});
+}
+
+function renderLogs(lines){
+  var el=document.getElementById('dbgLog');
+  el.textContent=(lines&&lines.length)?lines.join('\n'):'(пока нет логов)';
+  el.scrollTop=el.scrollHeight;
+}
+
+function fetchLogs(){
+  if(!dbgOn)return;
+  fetch('/api/logs').then(function(r){return r.json();}).then(function(d){
+    renderLogs(d.lines||[]);
+    document.getElementById('dbgState').textContent='Вкл. • uptime '+(d.uptime||0)+'с';
+  }).catch(function(){
+    document.getElementById('dbgState').textContent='Ошибка чтения /api/logs';
+  });
+}
+
+function toggleDebug(){
+  dbgOn=!dbgOn;
+  document.getElementById('dbgCard').style.display=dbgOn?'block':'none';
+  document.getElementById('dbgState').textContent=dbgOn?'Вкл.':'Выкл.';
+  if(dbgOn){
+    fetchLogs();
+    if(!dbgTimer) dbgTimer=setInterval(fetchLogs,2000);
+  } else {
+    if(dbgTimer){ clearInterval(dbgTimer); dbgTimer=null; }
+  }
 }
 
 function loadH(h,btn){
@@ -195,8 +233,26 @@ function loadH(h,btn){
       return;
     }
     nd.style.display='none'; cv.style.display='block';
-    if(!chart)chart=new TinyChart(cv);
-    chart.setData(labels,data.values);
+    if(!chart)chart=new TinyChart(cv,{
+      formatY:function(v,d){
+        var txt=v.toFixed(1)+'%';
+        if(!d || !d.s || !d.s.length) return txt;
+        var k=NaN;
+        for(var i=0;i<d.v.length;i++){
+          var pv=parseFloat(d.v[i]), sv=parseFloat(d.s[i]);
+          if(!isNaN(pv) && !isNaN(sv) && pv>0){ k=sv/pv; break; }
+        }
+        if(isNaN(k)) return txt;
+        return txt+'  ('+(v*k).toFixed(1)+' л)';
+      },
+      formatTooltip:function(idx,d,v){
+        var txt=(d.l[idx]||'')+': '+v.toFixed(1)+'%';
+        var sv=parseFloat((d.s||[])[idx]);
+        if(!isNaN(sv)) txt+=' / '+sv.toFixed(1)+' л';
+        return txt;
+      }
+    });
+    chart.setData(labels,data.values,data.volumes||[]);
 
     var tLabels=[], tValues=[];
     (data.temps||[]).forEach(function(v,i){

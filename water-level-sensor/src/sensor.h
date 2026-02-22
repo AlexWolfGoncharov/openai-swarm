@@ -89,7 +89,7 @@ inline void initTempSensor(const Config &c) {
   _ds18_dt->begin();
   _ds18_dt->setResolution(10);           // 10-bit ≈ 187 ms conversion
   _ds18_dt->setWaitForConversion(false); // async — we poll below
-  Serial.printf("[DS18B20] init on GPIO%u  devices: %u\n",
+  dbgPrintf("[DS18B20] init on GPIO%u  devices: %u\n",
                 c.ds18_pin, _ds18_dt->getDeviceCount());
 }
 
