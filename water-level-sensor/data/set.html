@@ -27,6 +27,18 @@
       <div class="fg"><label>Название сети (SSID)</label><input type="text" name="ws" placeholder="MyWiFi" maxlength="63"></div>
       <div class="fg"><label>Пароль</label><input type="password" name="wp" placeholder="••••••••" maxlength="63"></div>
     </div>
+    <div class="row2">
+      <div class="fg">
+        <label>Найти сеть Wi-Fi</label>
+        <select id="wifiList">
+          <option value="">Нажмите «Сканировать Wi-Fi»</option>
+        </select>
+        <p class="hint">Выберите сеть из списка, чтобы подставить SSID в поле выше</p>
+      </div>
+      <div class="fg" style="display:flex;align-items:flex-end">
+        <button type="button" id="scanWifiBtn" class="btn btn-s" style="width:auto;padding:11px 20px">Сканировать Wi-Fi</button>
+      </div>
+    </div>
     <p class="hint">Если WiFi не указан или недоступен — устройство запустит точку доступа <b>WaterSensor-XXXXXX</b> (пароль: watersensor)</p>
 
     <!-- Sensor -->
@@ -184,11 +196,67 @@ function showToast(m,t){
   setTimeout(function(){el.className='toast';},3500);
 }
 
+function esc(s){
+  return String(s).replace(/[&<>"]/g,function(c){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];
+  });
+}
+
+function setWifiScanBusy(busy){
+  var btn=document.getElementById('scanWifiBtn');
+  var list=document.getElementById('wifiList');
+  btn.disabled=busy;
+  list.disabled=busy;
+  btn.textContent=busy?'Сканирование...':'Сканировать Wi-Fi';
+}
+
+function renderWifiList(items){
+  var list=document.getElementById('wifiList');
+  if(!items || !items.length){
+    list.innerHTML='<option value="">Сети не найдены</option>';
+    return;
+  }
+  list.innerHTML='<option value="">Выберите сеть...</option>'+items.map(function(n){
+    var lock=n.enc?' 🔒':'';
+    var rssi=(typeof n.rssi==='number'?' ('+n.rssi+' dBm)':'');
+    return '<option value="'+esc(n.ssid)+'">'+esc(n.ssid)+lock+rssi+'</option>';
+  }).join('');
+}
+
+function scanWifi(){
+  setWifiScanBusy(true);
+  fetch('/api/wifi-scan')
+    .then(function(r){return r.json();})
+    .then(function(res){
+      var seen={};
+      var items=(res.networks||[])
+        .filter(function(n){ return n && n.ssid; })
+        .sort(function(a,b){ return (b.rssi||-999) - (a.rssi||-999); })
+        .filter(function(n){
+          if(seen[n.ssid]) return false;
+          seen[n.ssid]=1;
+          return true;
+        });
+      renderWifiList(items);
+      if(items.length) showToast('Список Wi-Fi обновлён','ok');
+      else showToast('Wi-Fi сети не найдены','err');
+    })
+    .catch(function(){
+      showToast('Ошибка сканирования Wi-Fi','err');
+      renderWifiList([]);
+    })
+    .finally(function(){ setWifiScanBusy(false); });
+}
+
 // Toggle visibility
 function vis(boxId,chk){document.getElementById(boxId).style.display=chk.checked?'block':'none';}
 document.getElementById('tde').addEventListener('change',function(){vis('ds18Box',this);});
 document.getElementById('tme').addEventListener('change',function(){vis('mqttBox',this);});
 document.getElementById('tte').addEventListener('change',function(){vis('tgBox',this);});
+document.getElementById('scanWifiBtn').addEventListener('click', scanWifi);
+document.getElementById('wifiList').addEventListener('change', function(){
+  if(this.value) document.getElementById('frm').elements['ws'].value=this.value;
+});
 
 // Load config
 fetch('/api/config').then(function(r){return r.json();}).then(function(c){

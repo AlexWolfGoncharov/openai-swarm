@@ -5,7 +5,8 @@ function TC(el,opts){
   this.o=Object.assign({
     bg:'transparent',grid:'#2a3a4a',line:'#00b4d8',
     fill:'rgba(0,180,216,0.12)',text:'#8899aa',
-    pad:{t:20,r:20,b:42,l:52}
+    pad:{t:20,r:20,b:42,l:52},
+    unit:'%'
   },opts||{});
   this.d={l:[],v:[]};
   var me=this;
@@ -48,7 +49,7 @@ TC.prototype={
       var gy=p.t+gh/4*gi;
       ctx.beginPath(); ctx.moveTo(p.l,gy); ctx.lineTo(p.l+gw,gy); ctx.stroke();
       var gv=mx-rng/4*gi;
-      ctx.fillText(gv.toFixed(1)+'%',p.l-6,gy+4);
+      ctx.fillText(gv.toFixed(1)+(o.unit||''),p.l-6,gy+4);
     }
     // fill
     ctx.beginPath();
@@ -80,7 +81,7 @@ TC.prototype={
       ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2);
       ctx.fillStyle=o.line; ctx.fill();
       // tooltip
-      var txt=d.l[idx]+': '+vals[idx].toFixed(1)+'%';
+      var txt=d.l[idx]+': '+vals[idx].toFixed(1)+(o.unit||'');
       ctx.font='12px sans-serif';
       var tw=ctx.measureText(txt).width+16;
       var tx=cx-tw/2; if(tx<p.l)tx=p.l; if(tx+tw>w-p.r)tx=w-p.r-tw;

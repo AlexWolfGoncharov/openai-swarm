@@ -83,6 +83,15 @@
     <div class="no-data" id="nd" style="display:none">Записи появятся через час после запуска.</div>
   </div>
 
+  <div class="card" style="margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+      <div class="clabel" style="margin:0">История температуры</div>
+      <div class="ts">Период совпадает с графиком уровня</div>
+    </div>
+    <div class="chartbox"><canvas id="cht"></canvas></div>
+    <div class="no-data" id="ndt" style="display:none">Нет сохранённых данных температуры.</div>
+  </div>
+
   <!-- Details & Actions -->
   <div class="grid g2">
     <div class="card">
@@ -108,7 +117,7 @@
 <div class="toast" id="toast"></div>
 <script src="/c.js"></script>
 <script>
-var chart=null,curH=24;
+var chart=null,tempChart=null,curH=24;
 
 function showToast(m,t){
   var el=document.getElementById('toast');
@@ -175,12 +184,39 @@ function loadH(h,btn){
   document.querySelectorAll('.cbtn').forEach(function(b){b.classList.remove('on');});
   if(btn)btn.classList.add('on');
   fetch('/api/history?h='+h).then(function(r){return r.json();}).then(function(data){
+    var labels=data.labels||[];
     var cv=document.getElementById('ch');
     var nd=document.getElementById('nd');
-    if(!data.labels||!data.labels.length){nd.style.display='block';cv.style.display='none';return;}
+    var tcv=document.getElementById('cht');
+    var ndt=document.getElementById('ndt');
+    if(!labels.length){
+      nd.style.display='block';cv.style.display='none';
+      ndt.style.display='block';tcv.style.display='none';
+      return;
+    }
     nd.style.display='none'; cv.style.display='block';
     if(!chart)chart=new TinyChart(cv);
-    chart.setData(data.labels,data.values);
+    chart.setData(labels,data.values);
+
+    var tLabels=[], tValues=[];
+    (data.temps||[]).forEach(function(v,i){
+      var n=parseFloat(v);
+      if(!isNaN(n) && labels[i]!==undefined){
+        tLabels.push(labels[i]);
+        tValues.push(n);
+      }
+    });
+    if(!tValues.length){
+      ndt.style.display='block';tcv.style.display='none';
+      return;
+    }
+    ndt.style.display='none'; tcv.style.display='block';
+    if(!tempChart)tempChart=new TinyChart(tcv,{
+      line:'#ff8c42',
+      fill:'rgba(255,140,66,0.14)',
+      unit:'°C'
+    });
+    tempChart.setData(tLabels,tValues);
   });
 }
 

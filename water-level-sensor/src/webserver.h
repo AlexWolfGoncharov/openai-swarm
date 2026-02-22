@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
+#include <ESP8266WiFi.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include "config.h"
@@ -26,6 +27,37 @@ static void serveFile(ESP8266WebServer &srv, const char *path, const char *mime)
 // ------------------------------------------------------------------
 static void sendJson(ESP8266WebServer &srv, const String &json, int code = 200) {
   srv.send(code, F("application/json"), json);
+}
+
+// ------------------------------------------------------------------
+// /api/wifi-scan
+// ------------------------------------------------------------------
+static String buildWifiScan() {
+  int found = WiFi.scanNetworks();
+  if (found < 0) found = 0;
+
+  if (found > 20) found = 20; // keep response small for ESP8266 RAM
+
+  DynamicJsonDocument doc(128 + found * 96);
+  JsonArray nets = doc.createNestedArray("networks");
+
+  for (int i = 0; i < found; i++) {
+    String ssid = WiFi.SSID(i);
+    if (!ssid.length()) continue; // skip hidden/empty SSID entries
+
+    JsonObject n = nets.createNestedObject();
+    n["ssid"] = ssid;
+    n["rssi"] = WiFi.RSSI(i);
+    n["enc"]  = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
+    n["ch"]   = WiFi.channel(i);
+    yield();
+  }
+
+  WiFi.scanDelete();
+
+  String out;
+  serializeJson(doc, out);
+  return out;
 }
 
 // ------------------------------------------------------------------
@@ -69,10 +101,11 @@ static String buildHistory(int hours) {
   uint32_t now = time(nullptr);
   uint32_t since = now - (uint32_t)hours * 3600UL;
 
-  DynamicJsonDocument doc(cnt * 40 + 64);
+  DynamicJsonDocument doc(cnt * 64 + 96);
   JsonArray labels = doc.createNestedArray("labels");
   JsonArray values = doc.createNestedArray("values");
   JsonArray vols   = doc.createNestedArray("volumes");
+  JsonArray temps  = doc.createNestedArray("temps");
 
   // buf is newest-first; reverse to chronological
   for (int i = cnt - 1; i >= 0; i--) {
@@ -86,6 +119,8 @@ static String buildHistory(int hours) {
     labels.add(lbl);
     values.add(serialized(String(buf[i].level, 1)));
     vols.add(serialized(String(buf[i].volume, 1)));
+    if (isnan(buf[i].temp_c)) temps.add(nullptr);
+    else                      temps.add(serialized(String(buf[i].temp_c, 1)));
   }
 
   String out; serializeJson(doc, out);
@@ -103,7 +138,7 @@ static void handleExport(ESP8266WebServer &srv) {
   srv.setContentLength(CONTENT_LENGTH_UNKNOWN);
   srv.send(200, F("text/csv"), "");
 
-  srv.sendContent(F("datetime,level_pct,volume_liters\r\n"));
+  srv.sendContent(F("datetime,level_pct,volume_liters,temp_c\r\n"));
   for (int i = cnt - 1; i >= 0; i--) {
     if (buf[i].ts == 0) continue;
     struct tm *ti = localtime((time_t*)&buf[i].ts);
@@ -113,6 +148,8 @@ static void handleExport(ESP8266WebServer &srv) {
     srv.sendContent(String(buf[i].level, 1));
     srv.sendContent(",");
     srv.sendContent(String(buf[i].volume, 1));
+    srv.sendContent(",");
+    if (!isnan(buf[i].temp_c)) srv.sendContent(String(buf[i].temp_c, 1));
     srv.sendContent(F("\r\n"));
     yield();
   }
@@ -182,6 +219,11 @@ inline void webSetup(ESP8266WebServer &srv,
     doc["op"] = "";  // never expose OTA password
     String out; serializeJson(doc, out);
     sendJson(srv, out);
+  });
+
+  // API - scan WiFi networks
+  srv.on("/api/wifi-scan", HTTP_GET, [&]{
+    sendJson(srv, buildWifiScan());
   });
 
   // API - save config
