@@ -322,7 +322,6 @@ void loop() {
   serialPoll();
   webServer.handleClient();
   MDNS.update();
-  yield();
 
   if (!apMode) {
     ArduinoOTA.handle();
@@ -373,5 +372,4 @@ void loop() {
     }
   }
 
-  yield();
 }

@@ -96,7 +96,6 @@ inline void mqttDiscovery(const Config &c) {
     char payload[480];
     size_t len = serializeJson(doc, payload, sizeof(payload));
     _mqttClient.publish(discTopic, payload, true);
-    yield();
   };
 
   // Build state topics from config base topic
