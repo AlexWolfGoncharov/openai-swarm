@@ -90,7 +90,9 @@ inline void configDefaults(Config &c) {
   c.ds18_pin       = 2;     // D4 = GPIO2
   c.ds18_en        = true;
   c.ota_auto_en    = false;
-  strlcpy(c.ota_version_url, "", sizeof(c.ota_version_url));
+  strlcpy(c.ota_version_url,
+          "https://raw.githubusercontent.com/AlexWolfGoncharov/openai-swarm/main/firmware/version.json",
+          sizeof(c.ota_version_url));
   c.ota_check_interval_h = 6;
   strlcpy(c.device_name, "watersensor", sizeof(c.device_name));
   strlcpy(c.ota_pass,    "ota1234",     sizeof(c.ota_pass));
