@@ -1,0 +1,92 @@
+name: Firmware CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Build & compile check ────────────────────────────────────────────────────
+  build:
+    name: Build firmware
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history so git describe works
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('water-level-sensor/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install --quiet platformio
+
+      - name: Build
+        working-directory: water-level-sensor
+        run: pio run
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ github.sha }}
+          path: water-level-sensor/.pio/build/d1_mini/firmware.bin
+          retention-days: 30
+
+  # ── Release: runs only on version tags (v1.2.3) ─────────────────────────────
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download firmware artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-${{ github.sha }}
+
+      - name: Extract version (strip leading 'v')
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Update firmware/version.json
+        run: |
+          mkdir -p firmware
+          cat > firmware/version.json <<EOF
+          {
+            "version": "${{ steps.ver.outputs.version }}",
+            "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/firmware.bin"
+          }
+          EOF
+
+      - name: Commit version.json to main [skip ci]
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          cp firmware/version.json firmware/version.json
+          git add firmware/version.json
+          git diff --cached --quiet && echo "No change" && exit 0
+          git commit -m "chore: firmware/version.json -> ${{ steps.ver.outputs.version }} [skip ci]"
+          git push origin main
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "v${{ steps.ver.outputs.version }}"
+          generate_release_notes: true
+          files: firmware.bin

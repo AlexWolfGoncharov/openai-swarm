@@ -748,6 +748,7 @@ inline void webSetup(ESP8266WebServer &srv,
     doc["fd"] = cfg.full_dist_cm;
     doc["bd"] = cfg.barrel_diam_cm;
     doc["as"] = cfg.avg_samples;
+    doc["ea"] = cfg.ema_alpha;
     doc["ms"] = cfg.measure_sec;
     doc["me"] = cfg.mqtt_en;
     doc["mh"] = cfg.mqtt_host;
@@ -767,6 +768,9 @@ inline void webSetup(ESP8266WebServer &srv,
     doc["td"] = cfg.tg_daily;
     doc["dp"] = cfg.ds18_pin;
     doc["de"] = cfg.ds18_en;
+    doc["ua"] = cfg.ota_auto_en;
+    doc["uu"] = cfg.ota_version_url;
+    doc["ui"] = cfg.ota_check_interval_h;
     doc["dn"] = cfg.device_name;
     doc["op"] = "";  // never expose OTA password
     String out; serializeJson(doc, out);
@@ -808,8 +812,9 @@ inline void webSetup(ESP8266WebServer &srv,
     if (hasValue("ed")) cfg.empty_dist_cm = doc["ed"];
     if (hasValue("fd")) cfg.full_dist_cm  = doc["fd"];
     if (hasValue("bd")) cfg.barrel_diam_cm = doc["bd"];
-    if (hasValue("as")) cfg.avg_samples   = doc["as"];
-    if (hasValue("ms")) cfg.measure_sec   = doc["ms"];
+    if (hasValue("as")) cfg.avg_samples = doc["as"];
+    if (hasValue("ea")) cfg.ema_alpha   = doc["ea"];
+    if (hasValue("ms")) cfg.measure_sec = doc["ms"];
     if (doc.containsKey("me")) cfg.mqtt_en        = doc["me"];
     copyStr("mh", cfg.mqtt_host,  sizeof(cfg.mqtt_host));
     if (hasValue("mp")) cfg.mqtt_port = doc["mp"];
@@ -832,7 +837,10 @@ inline void webSetup(ESP8266WebServer &srv,
     if (hasValue("th")) cfg.tg_alert_high = doc["th"];
     if (doc.containsKey("td")) cfg.tg_daily  = doc["td"];
     if (hasValue("dp")) cfg.ds18_pin  = doc["dp"];
-    if (doc.containsKey("de")) cfg.ds18_en   = doc["de"];
+    if (doc.containsKey("de")) cfg.ds18_en = doc["de"];
+    if (doc.containsKey("ua")) cfg.ota_auto_en = doc["ua"];
+    copyStr("uu", cfg.ota_version_url, sizeof(cfg.ota_version_url));
+    if (hasValue("ui")) cfg.ota_check_interval_h = doc["ui"];
     copyStr("dn", cfg.device_name, sizeof(cfg.device_name));
     copyStr("op", cfg.ota_pass,    sizeof(cfg.ota_pass));
 

@@ -19,6 +19,7 @@
 #include "mqtt_handler.h"
 #include "telegram_handler.h"
 #include "webserver.h"
+#include "ota_update.h"
 
 // ── Globals ──────────────────────────────────────────────────────────────────
 Config     cfg;
@@ -38,6 +39,7 @@ unsigned long tHourly     = 0;
 unsigned long tTelegram   = 0;
 unsigned long tMqtt       = 0;
 unsigned long tMdns       = 0;
+unsigned long tOtaCheck   = 0;
 
 // Daily summary
 int lastSummaryDay = -1;
@@ -434,6 +436,15 @@ void loop() {
       if (ti->tm_hour == 0 && ti->tm_min == 0 && ti->tm_mday != lastSummaryDay) {
         tgDailySummary(cfg, sens);
         lastSummaryDay = ti->tm_mday;
+      }
+    }
+
+    // Periodic auto-OTA check (interval configured in hours)
+    {
+      unsigned long intervalMs = (unsigned long)cfg.ota_check_interval_h * 3600000UL;
+      if (cfg.ota_auto_en && intervalMs > 0 && now - tOtaCheck >= intervalMs) {
+        tOtaCheck = now;
+        checkFirmwareUpdate(cfg);  // reboots on success; returns false on no-update/error
       }
     }
 

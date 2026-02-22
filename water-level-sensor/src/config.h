@@ -5,7 +5,11 @@
 #include "debug_log.h"
 
 #define CONFIG_FILE "/config.json"
-#define FW_VERSION  "1.0.0"
+// FW_VERSION is injected by platformio.ini build_flags from git tag.
+// The #ifndef fallback is only used when building outside PlatformIO.
+#ifndef FW_VERSION
+#define FW_VERSION "dev"
+#endif
 
 struct Config {
   // WiFi
@@ -18,7 +22,8 @@ struct Config {
   float    empty_dist_cm;    // distance when barrel is EMPTY (sensor→bottom)
   float    full_dist_cm;     // distance when barrel is FULL  (sensor→water)
   float    barrel_diam_cm;   // inner diameter, cm (0 = unknown)
-  uint8_t  avg_samples;      // readings to average (1..10)
+  uint8_t  avg_samples;      // readings for median (1..30)
+  float    ema_alpha;        // EMA factor between cycles (0.01..1.0); lower = smoother
   uint16_t measure_sec;      // measurement interval, seconds
 
   // MQTT
@@ -45,6 +50,11 @@ struct Config {
   uint8_t  ds18_pin;         // data pin (default GPIO2 = D4)
   bool     ds18_en;          // enable temperature sensor
 
+  // OTA auto-update (HTTP pull from firmware/version.json in the repo)
+  bool     ota_auto_en;            // enable periodic auto-update check
+  char     ota_version_url[192];   // URL to version.json
+  uint8_t  ota_check_interval_h;   // check interval, hours (1..24)
+
   // System
   char     device_name[32];
   char     ota_pass[32];
@@ -61,7 +71,8 @@ inline void configDefaults(Config &c) {
   c.empty_dist_cm  = 110.0f;
   c.full_dist_cm   = 25.0f;
   c.barrel_diam_cm = 51.0f;
-  c.avg_samples    = 10;
+  c.avg_samples    = 20;
+  c.ema_alpha      = 0.2f;
   c.measure_sec    = 60;
   c.mqtt_en        = true;
   strlcpy(c.mqtt_host,  "192.168.4.107", sizeof(c.mqtt_host));
@@ -78,6 +89,9 @@ inline void configDefaults(Config &c) {
   c.tg_daily       = true;
   c.ds18_pin       = 2;     // D4 = GPIO2
   c.ds18_en        = true;
+  c.ota_auto_en    = false;
+  strlcpy(c.ota_version_url, "", sizeof(c.ota_version_url));
+  c.ota_check_interval_h = 6;
   strlcpy(c.device_name, "watersensor", sizeof(c.device_name));
   strlcpy(c.ota_pass,    "ota1234",     sizeof(c.ota_pass));
 }
@@ -85,13 +99,13 @@ inline void configDefaults(Config &c) {
 inline void logConfigSummary(const char *tag, const Config &c) {
   dbgPrintf(
     "[CFG] %s | wifi_ssid='%s' trig=%u echo=%u ds18_en=%u ds18_pin=%u "
-    "empty=%.1f full=%.1f diam=%.1f avg=%u sec=%u mqtt=%u tg=%u tx=%u tal=%u tah=%u tb=%u\n",
+    "empty=%.1f full=%.1f diam=%.1f avg=%u ema=%.2f sec=%u mqtt=%u tg=%u tx=%u tal=%u tah=%u tb=%u\n",
     tag ? tag : "state",
     c.wifi_ssid,
     c.trig_pin, c.echo_pin,
     c.ds18_en ? 1 : 0, c.ds18_pin,
     c.empty_dist_cm, c.full_dist_cm, c.barrel_diam_cm,
-    c.avg_samples, c.measure_sec,
+    c.avg_samples, c.ema_alpha, c.measure_sec,
     c.mqtt_en ? 1 : 0, c.tg_en ? 1 : 0,
     c.tg_cmd_en ? 1 : 0,
     c.tg_alert_low_en ? 1 : 0,
@@ -115,10 +129,15 @@ inline bool sanitizeConfig(Config &c) {
   fixU8(c.echo_pin, 12, "echo_pin");
   fixU8(c.ds18_pin, 2,  "ds18_pin");
 
-  if (c.avg_samples < 1 || c.avg_samples > 10) {
+  if (c.avg_samples < 1 || c.avg_samples > 30) {
     uint8_t old = c.avg_samples;
-    c.avg_samples = 10;
+    c.avg_samples = 20;
     dbgPrintf("[CFG] Sanitize avg_samples: %u -> %u\n", old, c.avg_samples);
+    changed = true;
+  }
+  if (c.ema_alpha < 0.01f || c.ema_alpha > 1.0f) {
+    dbgPrintf("[CFG] Sanitize ema_alpha: %.3f -> 0.200\n", c.ema_alpha);
+    c.ema_alpha = 0.2f;
     changed = true;
   }
 
@@ -204,7 +223,8 @@ inline bool loadConfig(Config &c) {
   c.empty_dist_cm  = doc["ed"]  | 110.0f;
   c.full_dist_cm   = doc["fd"]  | 25.0f;
   c.barrel_diam_cm = doc["bd"]  | 51.0f;
-  c.avg_samples    = doc["as"]  | 10;
+  c.avg_samples    = doc["as"]  | 20;
+  c.ema_alpha      = doc["ea"]  | 0.2f;
   c.measure_sec    = doc["ms"]  | 60;
   c.mqtt_en        = doc["me"]  | true;
   strlcpy(c.mqtt_host,  doc["mh"]  | "192.168.4.107", sizeof(c.mqtt_host));
@@ -225,6 +245,9 @@ inline bool loadConfig(Config &c) {
   c.tg_daily       = doc["td"]  | true;
   c.ds18_pin       = doc["dp"]  | 2;
   c.ds18_en        = doc["de"]  | true;
+  c.ota_auto_en    = doc["ua"]  | false;
+  strlcpy(c.ota_version_url, doc["uu"] | "", sizeof(c.ota_version_url));
+  c.ota_check_interval_h = doc["ui"] | 6;
   strlcpy(c.device_name, doc["dn"] | "watersensor", sizeof(c.device_name));
   strlcpy(c.ota_pass,    doc["op"] | "ota1234",     sizeof(c.ota_pass));
   sanitizeConfig(c);
@@ -244,6 +267,7 @@ inline bool saveConfig(Config &c) {
   doc["fd"] = c.full_dist_cm;
   doc["bd"] = c.barrel_diam_cm;
   doc["as"] = c.avg_samples;
+  doc["ea"] = c.ema_alpha;
   doc["ms"] = c.measure_sec;
   doc["me"] = c.mqtt_en;
   doc["mh"] = c.mqtt_host;
@@ -263,6 +287,9 @@ inline bool saveConfig(Config &c) {
   doc["td"] = c.tg_daily;
   doc["dp"] = c.ds18_pin;
   doc["de"] = c.ds18_en;
+  doc["ua"] = c.ota_auto_en;
+  doc["uu"] = c.ota_version_url;
+  doc["ui"] = c.ota_check_interval_h;
   doc["dn"] = c.device_name;
   doc["op"] = c.ota_pass;
 

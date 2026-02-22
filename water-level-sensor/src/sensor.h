@@ -35,18 +35,35 @@ static float _hcsr04_once(uint8_t trig, uint8_t echo) {
 }
 
 // ------------------------------------------------------------------
-// Averaged measurement
+// Median measurement: collect samples, sort, return middle value.
+// Single-echo outliers (spikes) are discarded automatically.
 // ------------------------------------------------------------------
+#define SENSOR_MAX_SAMPLES 30
+
 inline float measureDistance(const Config &c) {
-  float sum = 0;
-  int   ok  = 0;
-  for (int i = 0; i < c.avg_samples; i++) {
+  float buf[SENSOR_MAX_SAMPLES];
+  int   ok = 0;
+  int   n  = min((int)c.avg_samples, SENSOR_MAX_SAMPLES);
+
+  for (int i = 0; i < n; i++) {
     float d = _hcsr04_once(c.trig_pin, c.echo_pin);
-    if (d > 0 && d < 500) { sum += d; ok++; }
+    if (d > 0 && d < 500) buf[ok++] = d;
     delay(50);
     yield();
   }
-  return ok ? sum / ok : -1.0f;
+  if (ok == 0) return -1.0f;
+
+  // Insertion sort (fast for ≤30 elements)
+  for (int i = 1; i < ok; i++) {
+    float key = buf[i];
+    int   j   = i - 1;
+    while (j >= 0 && buf[j] > key) { buf[j + 1] = buf[j]; j--; }
+    buf[j + 1] = key;
+  }
+
+  // Return median
+  if (ok % 2 == 1) return buf[ok / 2];
+  return (buf[ok / 2 - 1] + buf[ok / 2]) / 2.0f;
 }
 
 // ------------------------------------------------------------------
@@ -94,14 +111,30 @@ inline void initTempSensor(const Config &c) {
 }
 
 // ------------------------------------------------------------------
-// Full measurement cycle
+// Full measurement cycle with inter-cycle EMA smoothing
 // ------------------------------------------------------------------
 inline void doMeasure(const Config &c, SensorData &s) {
+  static float _ema_dist = -1.0f;
+
   // Kick off DS18B20 conversion before HC-SR04 (runs concurrently)
   if (_ds18_dt) _ds18_dt->requestTemperatures();
 
-  float dist = measureDistance(c);   // ~50–250 ms depending on avg_samples
-  computeLevel(c, dist, s);
+  float dist = measureDistance(c);   // ~avg_samples × 50 ms
+
+  if (dist < 0) {
+    // No valid reading — hold last EMA, mark invalid
+    computeLevel(c, _ema_dist > 0 ? _ema_dist : 0, s);
+    s.valid = false;
+  } else {
+    // First valid reading initialises the filter; subsequent readings blend in
+    if (_ema_dist < 0) {
+      _ema_dist = dist;
+    } else {
+      float alpha = constrain(c.ema_alpha, 0.01f, 1.0f);
+      _ema_dist = alpha * dist + (1.0f - alpha) * _ema_dist;
+    }
+    computeLevel(c, _ema_dist, s);
+  }
 
   // Wait for DS18B20 conversion to finish (max 200 ms at 10-bit)
   if (_ds18_dt) {
