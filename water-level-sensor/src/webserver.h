@@ -236,29 +236,32 @@ inline void webSetup(ESP8266WebServer &srv,
       if (doc.containsKey(key) && doc[key].as<String>() != "••••••••")
         strlcpy(dst, doc[key] | "", len);
     };
+    auto hasValue = [&](const char *key) -> bool {
+      return doc.containsKey(key) && !doc[key].isNull();
+    };
 
     copyStr("ws", cfg.wifi_ssid,    sizeof(cfg.wifi_ssid));
     copyStr("wp", cfg.wifi_password, sizeof(cfg.wifi_password));
-    if (doc.containsKey("tp")) cfg.trig_pin      = doc["tp"];
-    if (doc.containsKey("ep")) cfg.echo_pin       = doc["ep"];
-    if (doc.containsKey("ed")) cfg.empty_dist_cm  = doc["ed"];
-    if (doc.containsKey("fd")) cfg.full_dist_cm   = doc["fd"];
-    if (doc.containsKey("bd")) cfg.barrel_diam_cm = doc["bd"];
-    if (doc.containsKey("as")) cfg.avg_samples    = doc["as"];
-    if (doc.containsKey("ms")) cfg.measure_sec    = doc["ms"];
+    if (hasValue("tp")) cfg.trig_pin      = doc["tp"];
+    if (hasValue("ep")) cfg.echo_pin      = doc["ep"];
+    if (hasValue("ed")) cfg.empty_dist_cm = doc["ed"];
+    if (hasValue("fd")) cfg.full_dist_cm  = doc["fd"];
+    if (hasValue("bd")) cfg.barrel_diam_cm = doc["bd"];
+    if (hasValue("as")) cfg.avg_samples   = doc["as"];
+    if (hasValue("ms")) cfg.measure_sec   = doc["ms"];
     if (doc.containsKey("me")) cfg.mqtt_en        = doc["me"];
     copyStr("mh", cfg.mqtt_host,  sizeof(cfg.mqtt_host));
-    if (doc.containsKey("mp")) cfg.mqtt_port = doc["mp"];
+    if (hasValue("mp")) cfg.mqtt_port = doc["mp"];
     copyStr("mu", cfg.mqtt_user, sizeof(cfg.mqtt_user));
     copyStr("mq", cfg.mqtt_pass, sizeof(cfg.mqtt_pass));
     copyStr("mt", cfg.mqtt_topic, sizeof(cfg.mqtt_topic));
     if (doc.containsKey("te")) cfg.tg_en = doc["te"];
     copyStr("tt", cfg.tg_token, sizeof(cfg.tg_token));
     copyStr("tc", cfg.tg_chat,  sizeof(cfg.tg_chat));
-    if (doc.containsKey("tl")) cfg.tg_alert_low  = doc["tl"];
-    if (doc.containsKey("th")) cfg.tg_alert_high = doc["th"];
+    if (hasValue("tl")) cfg.tg_alert_low  = doc["tl"];
+    if (hasValue("th")) cfg.tg_alert_high = doc["th"];
     if (doc.containsKey("td")) cfg.tg_daily  = doc["td"];
-    if (doc.containsKey("dp")) cfg.ds18_pin  = doc["dp"];
+    if (hasValue("dp")) cfg.ds18_pin  = doc["dp"];
     if (doc.containsKey("de")) cfg.ds18_en   = doc["de"];
     copyStr("dn", cfg.device_name, sizeof(cfg.device_name));
     copyStr("op", cfg.ota_pass,    sizeof(cfg.ota_pass));
